@@ -1,16 +1,12 @@
-#build stage
-FROM golang:alpine AS builder
-RUN apk add --no-cache git
-WORKDIR /go/src/app
-COPY . .
-RUN go get -d -v ./...
-RUN go build  -o /go/bin/containermon -v containermon.go
-
 #final stage
-FROM alpine:latest
-ENV SOCKET_FILE_PATH=NoConfigFile
+FROM ubuntu:noble
+ENV SOCKET_FILE_PATH=''
 ENV HEALTH_CHECK_URL=''
-RUN apk --no-cache add ca-certificates
-COPY --from=builder /go/bin/containermon /containermon
-ENTRYPOINT ["/bin/sh", "-c", "/containermon -socketPath=$SOCKET_FILE_PATH -healthcheckUrl=$HEALTH_CHECK_URL"]
-LABEL Name=goRSSDedup Version=1.0
+ENV CRON_SCHEDULER_CONFIG=''
+RUN apt-get update && apt-get install -y libgpgme-dev
+RUN apt-get install -y ca-certificates
+ADD build/containermon /exec/containermon
+RUN chmod +x /exec/containermon
+RUN chmod 777 /exec/containermon
+ENTRYPOINT ["/bin/sh", "-c", "/exec/containermon"]
+LABEL Name=containermon Version=1.0
