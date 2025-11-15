@@ -12,6 +12,8 @@ import (
 
 	podman_binding "github.com/containers/podman/v5/pkg/bindings"
 	podman_containers "github.com/containers/podman/v5/pkg/bindings/containers"
+	"github.com/containrrr/shoutrrr"
+	"github.com/dgraph-io/ristretto/v2"
 	docker_container "github.com/docker/docker/api/types/container"
 	docker_client "github.com/docker/docker/client"
 	"github.com/go-co-op/gocron/v2"
@@ -20,21 +22,31 @@ import (
 
 func main() {
 	var socketPath string
-	var healthcheckUrl string
-	var cronSchedulerConfig string
+	var hostHealthcheckUrl string
+	var containerErrorUrl string
+	var cronContainerHealthConfig string
+	var cronHostHealthConfig string
 	var enableDebugging bool
     
 	flag.StringVar(&socketPath, "socketPath", "", "Socket file path for Container engine")
 	if(socketPath == "") {
 		socketPath = os.Getenv("SOCKET_FILE_PATH")
 	}
-	flag.StringVar(&healthcheckUrl, "healthcheckUrl", "", "Health check URL to report status")
-	if(healthcheckUrl == "") {
-		healthcheckUrl = os.Getenv("HEALTH_CHECK_URL")
+	flag.StringVar(&hostHealthcheckUrl, "healthcheckUrl", "", "Health check URL to report status")
+	if(hostHealthcheckUrl == "") {
+		hostHealthcheckUrl = os.Getenv("HOST_HEALTH_CHECK_URL")
 	}
-	flag.StringVar(&cronSchedulerConfig, "cronSchedulerConfig", "", "Cron scheduler configuration string")
-	if(cronSchedulerConfig == "") {
-		cronSchedulerConfig = os.Getenv("CRON_SCHEDULER_CONFIG")
+	flag.StringVar(&containerErrorUrl, "containerErrorUrl", "", "Error URL to report container errors")
+	if(containerErrorUrl == "") {
+		containerErrorUrl = os.Getenv("CONTAINER_ERROR_URL")
+	}
+	flag.StringVar(&cronContainerHealthConfig, "cronContainerHealthConfig", "", "Cron scheduler configuration for Container health check")
+	if(cronContainerHealthConfig == "") {
+		cronContainerHealthConfig = os.Getenv("CRON_CONTAINER_HEALTH_CONFIG")
+	}
+	flag.StringVar(&cronHostHealthConfig, "cronHostHealthConfig", "", "Cron scheduler configuration for Host health check")
+	if(cronHostHealthConfig == "") {
+		cronHostHealthConfig = os.Getenv("CRON_HOST_HEALTH_CONFIG")
 	}
 	flag.BoolVar(&enableDebugging, "debug", false, "Enable debug logging")
 	if os.Getenv("ENABLE_DEBUGGING") != "" {
@@ -51,28 +63,46 @@ func main() {
 		socket = "unix://" + socketPath
 	}
 
+	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+		NumCounters: 1e7,     // number of keys to track frequency of (10M).
+		MaxCost:     1 << 30, // maximum cost of cache (1GB).
+		BufferItems: 64,      // number of keys per Get buffer.
+	})
+	if err != nil {
+		panic(err)
+	}
+
 	if enableDebugging {
 		log.Println("Debugging enabled")
 		log.Printf("Socket Path: %s\n", socketPath)
-		log.Printf("Healthcheck URL: %s\n", healthcheckUrl)
-		log.Printf("Cron Scheduler Config: %s\n", cronSchedulerConfig)
+		log.Printf("Host healthcheck URL: %s\n", hostHealthcheckUrl)
+		log.Printf("Container error URL: %s\n", containerErrorUrl)
+		log.Printf("Cron Host health Scheduler Config: %s\n", cronHostHealthConfig)
+		log.Printf("Cron Container health Scheduler Config: %s\n", cronContainerHealthConfig)
 	}
 
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		log.Println("Failed to start scheduler: " + err.Error())
 	}
-	if(cronSchedulerConfig != "") {
+
+	defer func() { _ = s.Shutdown() }()
+
+	if cronContainerHealthConfig != "" {
+		secondsInContainerCron := false
+		if strings.Count(cronContainerHealthConfig, " ") > 4 {
+			secondsInContainerCron = true
+		}
 		defer func() { _ = s.Shutdown() }()
 		_, err = s.NewJob(
 			gocron.CronJob(
-				cronSchedulerConfig,
-				false,
+				cronContainerHealthConfig,
+				secondsInContainerCron,
 			),
 			gocron.NewTask(
 				func() {
 					if enableDebugging {
-						log.Println("Starting Cron")
+						log.Println("Starting Cron for Container Health Check")
 					}
 					
 					// HTTP client with timeout
@@ -80,47 +110,77 @@ func main() {
 						Timeout: 10 * time.Second,
 					}
 
-					foundError := false
 					if strings.Contains(socketPath,"podman") {
 						if enableDebugging {
 							log.Println("Using Podman health check")
 						}
-						foundError = podmanHealthCheck(client, socket, healthcheckUrl, enableDebugging)
+						podmanHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache)
 					} else {
 						if enableDebugging {
 							log.Println("Using Docker health check")
 						}
-						foundError = dockerHealthCheck(client, socket, healthcheckUrl, enableDebugging)
+						dockerHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache)
 					}
-					// If no errors found, send success log
-					if !foundError {
-						if enableDebugging {
-							log.Println("All containers processed, sending success log")
-						}
-						resp, err := client.Get(healthcheckUrl)
-						if err != nil {
-							log.Println("Failed to send success log: " + err.Error())
-						}
-						if resp.StatusCode != 200 {
-							log.Println("Failed to send success log, response code: " + resp.Status)
-						}
-					}
-					
 				},
 			),
 		)
 		if err != nil {
 			log.Println("Failed to config scheduler job: " + err.Error())
 		}
-		s.Start()
-		select {} // wait forever
 	} else {
-		log.Println("No cron schedule config provided, exiting...")
+		log.Println("No Container Health Check cron configuration provided, skipping container health check setup")
+	}
+
+	if cronHostHealthConfig != "" {
+		secondsInContainerCron := false
+		if strings.Count(cronHostHealthConfig, " ") > 4 {
+			secondsInContainerCron = true
+		}
+		_, err = s.NewJob(
+			gocron.CronJob(
+				cronHostHealthConfig,
+				secondsInContainerCron,
+			),
+			gocron.NewTask(
+				func() {
+					if enableDebugging {
+						log.Println("Starting Cron for Host Health Check")
+					}
+					
+					// HTTP client with timeout
+					client := &http.Client{
+						Timeout: 10 * time.Second,
+					}
+
+					if enableDebugging {
+						log.Println("Sending Host Healthcheck")
+					}
+					resp, err := client.Head(hostHealthcheckUrl)
+					if err != nil {
+						log.Println("Failed to send success log: " + err.Error())
+					}
+					if resp.StatusCode != 200 {
+						log.Println("Failed to send success log, response code: " + resp.Status)
+					}
+
+				},
+			),
+		)
+		if err != nil {
+			log.Println("Failed to config scheduler job: " + err.Error())
+		}
+	} else {
+		log.Println("No Host Health Check cron configuration provided, skipping host health check setup")
+	}
+	if len(s.Jobs()) > 0 {
+		s.Start()
+		select {} 
+	} else {
+		log.Println("No cron jobs configured, exiting")
 	}	
 }
 
-func podmanHealthCheck(client *http.Client, socket string, healthcheckUrl string, enableDebugging bool) bool {
-	foundError := false
+func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache *ristretto.Cache[string, string]) {
 	// Connect to Podman socket
 	connText, err := podman_binding.NewConnection(context.Background(), socket)
 	if err != nil {
@@ -173,16 +233,31 @@ func podmanHealthCheck(client *http.Client, socket string, healthcheckUrl string
 					log.Println("Health status for container " + ctrData.Name + ": " + healthstatus)
 				}
 				if healthstatus != "healthy" {
-					foundError = true
-					// Report unhealthy container via healthcheck URL
-					if healthcheckUrl != "" {
-						resp, err := client.Post(healthcheckUrl + "/fail", "text/plain; charset=utf-8",  strings.NewReader(ctrData.Name))
-						if err != nil {
-							log.Println("Failed to send error log: " + err.Error())
+					_, found := cache.Get(ctrData.ID)
+					if !found {
+						// Report unhealthy container via healthcheck URL
+						if containerErrorUrl != "" {
+							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + healthstatus)
+							if err != nil {
+								log.Println("Failed to send error log: " + err.Error())
+							}
 						}
-						if resp.StatusCode != 200 {
-							log.Println("Failed to send error log, response code: " + resp.Status)
+						// set a value with a cost of 1
+						cache.Set(ctrData.ID, healthstatus, 1)
+						// wait for value to pass through buffers
+						cache.Wait()
+					}
+				} else {
+					_, found := cache.Get(ctrData.ID)
+					if found {
+						// Report unhealthy container via healthcheck URL
+						if containerErrorUrl != "" {
+							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + healthstatus)
+							if err != nil {
+								log.Println("Failed to send error log: " + err.Error())
+							}
 						}
+						cache.Del(ctrData.ID)
 					}
 				}
 			} else {
@@ -191,26 +266,39 @@ func podmanHealthCheck(client *http.Client, socket string, healthcheckUrl string
 					log.Println("Container status for container " + ctrData.Name + ": " + containerStatus)
 				}
 				if containerStatus != "running" {
-					foundError = true
-					// Report non-running container via healthcheck URL
-					if healthcheckUrl != "" {
-						resp, err := client.Post(healthcheckUrl + "/fail", "text/plain; charset=utf-8",  strings.NewReader(ctrData.Name))
-						if err != nil {
-							log.Println("Failed to send error log: " + err.Error())
+					_, found := cache.Get(ctrData.ID)
+					if !found {
+						// Report unhealthy container via healthcheck URL
+						if containerErrorUrl != "" {
+							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + containerStatus)
+							if err != nil {
+								log.Println("Failed to send error log: " + err.Error())
+							}
 						}
-						if resp.StatusCode != 200 {
-							log.Println("Failed to send error log, response code: " + resp.Status)
+						// set a value with a cost of 1
+						cache.Set(ctrData.ID, containerStatus, 1)
+						// wait for value to pass through buffers
+						cache.Wait()
+					}
+				} else {
+					_, found := cache.Get(ctrData.ID)
+					if found {
+						// Report unhealthy container via healthcheck URL
+						if containerErrorUrl != "" {
+							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + containerStatus)
+							if err != nil {
+								log.Println("Failed to send error log: " + err.Error())
+							}
 						}
+						cache.Del(ctrData.ID)
 					}
 				}
 			}
 		}
 	}
-	return foundError
 }
 
-func dockerHealthCheck(client *http.Client, socket string, healthcheckUrl string, enableDebugging bool) bool {
-	foundError := false
+func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache *ristretto.Cache[string, string]) {
 	// Connect to Docker socket
 	dockerClient, err := docker_client.NewClientWithOpts(
 		docker_client.WithHost(socket),
@@ -263,16 +351,31 @@ func dockerHealthCheck(client *http.Client, socket string, healthcheckUrl string
 					log.Println("Health status for container " + ctrData.Name + ": " + healthstatus)
 				}
 				if healthstatus != "healthy" {
-					foundError = true
-					// Report unhealthy container via healthcheck URL
-					if healthcheckUrl != "" {
-						resp, err := client.Post(healthcheckUrl + "/fail", "text/plain; charset=utf-8",  strings.NewReader(ctrData.Name))
-						if err != nil {
-							log.Println("Failed to send error log: " + err.Error())
+					_, found := cache.Get(ctrData.ID)
+					if !found {
+						// Report unhealthy container via healthcheck URL
+						if containerErrorUrl != "" {
+							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + healthstatus)
+							if err != nil {
+								log.Println("Failed to send error log: " + err.Error())
+							}
 						}
-						if resp.StatusCode != 200 {
-							log.Println("Failed to send error log, response code: " + resp.Status)
+						// set a value with a cost of 1
+						cache.Set(ctrData.ID, healthstatus, 1)
+						// wait for value to pass through buffers
+						cache.Wait()
+					}
+				} else {
+					_, found := cache.Get(ctrData.ID)
+					if found {
+						// Report unhealthy container via healthcheck URL
+						if containerErrorUrl != "" {
+							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + healthstatus)
+							if err != nil {
+								log.Println("Failed to send error log: " + err.Error())
+							}
 						}
+						cache.Del(ctrData.ID)
 					}
 				}
 			} else {
@@ -281,20 +384,34 @@ func dockerHealthCheck(client *http.Client, socket string, healthcheckUrl string
 					log.Println("Container status for container " + ctrData.Name + ": " + containerStatus)
 				}
 				if containerStatus != "running" {
-					foundError = true
-					// Report non-running container via healthcheck URL
-					if healthcheckUrl != "" {
-						resp, err := client.Post(healthcheckUrl + "/fail", "text/plain; charset=utf-8",  strings.NewReader(ctrData.Name))
-						if err != nil {
-							log.Println("Failed to send error log: " + err.Error())
+					_, found := cache.Get(ctrData.ID)
+					if !found {
+						// Report unhealthy container via healthcheck URL
+						if containerErrorUrl != "" {
+							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + containerStatus)
+							if err != nil {
+								log.Println("Failed to send error log: " + err.Error())
+							}
 						}
-						if resp.StatusCode != 200 {
-							log.Println("Failed to send error log, response code: " + resp.Status)
+						// set a value with a cost of 1
+						cache.Set(ctrData.ID, containerStatus, 1)
+						// wait for value to pass through buffers
+						cache.Wait()
+					}
+				} else {
+					_, found := cache.Get(ctrData.ID)
+					if found {
+						// Report unhealthy container via healthcheck URL
+						if containerErrorUrl != "" {
+							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + containerStatus)
+							if err != nil {
+								log.Println("Failed to send error log: " + err.Error())
+							}
 						}
+						cache.Del(ctrData.ID)
 					}
 				}
 			}
 		}
 	}
-	return foundError
 }
