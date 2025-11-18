@@ -227,40 +227,45 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 		}
 
 		if inspectContainer {
-			healthstatus := ctrData.State.Health.Status
-			if healthstatus != "" {
-				if enableDebugging {
-					log.Println("Health status for container " + ctrData.Name + ": " + healthstatus)
-				}
-				if healthstatus != "healthy" {
-					_, found := cache.Get(ctrData.ID)
-					if !found {
-						// Report unhealthy container via healthcheck URL
-						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + healthstatus)
-							if err != nil {
-								log.Println("Failed to send error log: " + err.Error())
-							}
-						}
-						// set a value with a cost of 1
-						cache.Set(ctrData.ID, healthstatus, 1)
-						// wait for value to pass through buffers
-						cache.Wait()
+			skipHealthCheck := true
+			if(ctrData.State.Health != nil) {
+				skipHealthCheck = false
+				healthstatus := ctrData.State.Health.Status
+				if healthstatus != "" {
+					if enableDebugging {
+						log.Println("Health status for container " + ctrData.Name + ": " + healthstatus)
 					}
-				} else {
-					_, found := cache.Get(ctrData.ID)
-					if found {
-						// Report unhealthy container via healthcheck URL
-						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + healthstatus)
-							if err != nil {
-								log.Println("Failed to send error log: " + err.Error())
+					if healthstatus != "healthy" {
+						_, found := cache.Get(ctrData.ID)
+						if !found {
+							// Report unhealthy container via healthcheck URL
+							if containerErrorUrl != "" {
+								err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + healthstatus)
+								if err != nil {
+									log.Println("Failed to send error log: " + err.Error())
+								}
 							}
+							// set a value with a cost of 1
+							cache.Set(ctrData.ID, healthstatus, 1)
+							// wait for value to pass through buffers
+							cache.Wait()
 						}
-						cache.Del(ctrData.ID)
+					} else {
+						_, found := cache.Get(ctrData.ID)
+						if found {
+							// Report unhealthy container via healthcheck URL
+							if containerErrorUrl != "" {
+								err := shoutrrr.Send(containerErrorUrl, "Container: " + ctrData.Name + " Status: " + healthstatus)
+								if err != nil {
+									log.Println("Failed to send error log: " + err.Error())
+								}
+							}
+							cache.Del(ctrData.ID)
+						}
 					}
 				}
-			} else {
+			} 
+			if(skipHealthCheck) {
 				containerStatus := ctrData.State.Status
 				if enableDebugging {
 					log.Println("Container status for container " + ctrData.Name + ": " + containerStatus)
