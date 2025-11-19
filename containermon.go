@@ -13,7 +13,6 @@ import (
 	podman_binding "github.com/containers/podman/v5/pkg/bindings"
 	podman_containers "github.com/containers/podman/v5/pkg/bindings/containers"
 	"github.com/containrrr/shoutrrr"
-	"github.com/dgraph-io/ristretto/v2"
 	docker_container "github.com/docker/docker/api/types/container"
 	docker_client "github.com/docker/docker/client"
 	"github.com/go-co-op/gocron/v2"
@@ -63,14 +62,7 @@ func main() {
 		socket = "unix://" + socketPath
 	}
 
-	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
-		NumCounters: 1e7,     // number of keys to track frequency of (10M).
-		MaxCost:     1 << 10, // maximum cost of cache (1GB).
-		BufferItems: 64,      // number of keys per Get buffer.
-	})
-	if err != nil {
-		panic(err)
-	}
+	cache := make(map[string]int)
 
 	if enableDebugging {
 		log.Println("Debugging enabled")
@@ -180,7 +172,7 @@ func main() {
 	}	
 }
 
-func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache *ristretto.Cache[string, string]) {
+func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int) {
 	// Connect to Podman socket
 	connText, err := podman_binding.NewConnection(context.Background(), socket)
 	if err != nil {
@@ -236,8 +228,8 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 						log.Println("Health status for container " + ctrData.Name + ": " + healthstatus)
 					}
 					if healthstatus != "healthy" && healthstatus != "starting" {
-						_, found := cache.Get(ctrData.ID)
-						if !found {
+						found := cache[ctrData.ID]
+						if found == 0 {
 							// Report unhealthy container via healthcheck URL
 							if containerErrorUrl != "" {
 							err := shoutrrr.Send(containerErrorUrl, "ERROR: Container: " + ctrData.Name + " has the health status: " + healthstatus)
@@ -245,14 +237,11 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 									log.Println("Failed to send error log: " + err.Error())
 								}
 							}
-							// set a value with a cost of 1
-							cache.Set(ctrData.ID, healthstatus, 1)
-							// wait for value to pass through buffers
-							cache.Wait()
+							cache[ctrData.ID] = 1
 						}
 					} else {
-						_, found := cache.Get(ctrData.ID)
-						if found {
+						found := cache[ctrData.ID]
+						if found != 0 {
 							// Report unhealthy container via healthcheck URL
 							if containerErrorUrl != "" {
 							err := shoutrrr.Send(containerErrorUrl, "RECOVERED: Container: " + ctrData.Name + " has recovered the health status: " + healthstatus)
@@ -260,7 +249,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 									log.Println("Failed to send error log: " + err.Error())
 								}
 							}
-							cache.Del(ctrData.ID)
+							delete(cache,ctrData.ID)
 						}
 					}
 				}
@@ -271,8 +260,8 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					log.Println("Container status for container " + ctrData.Name + ": " + containerStatus)
 				}
 				if containerStatus != "running" {
-					_, found := cache.Get(ctrData.ID)
-					if !found {
+					found := cache[ctrData.ID]
+					if found == 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
 							err := shoutrrr.Send(containerErrorUrl, "ERROR: Container: " + ctrData.Name + " has the container status: " + containerStatus)
@@ -280,14 +269,11 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 								log.Println("Failed to send error log: " + err.Error())
 							}
 						}
-						// set a value with a cost of 1
-						cache.Set(ctrData.ID, containerStatus, 1)
-						// wait for value to pass through buffers
-						cache.Wait()
+						cache[ctrData.ID] = 1
 					}
 				} else {
-					_, found := cache.Get(ctrData.ID)
-					if found {
+					found := cache[ctrData.ID]
+					if found != 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
 							err := shoutrrr.Send(containerErrorUrl, "RECOVERED: Container: " + ctrData.Name + " has recovered with status: " + containerStatus)
@@ -295,7 +281,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 								log.Println("Failed to send error log: " + err.Error())
 							}
 						}
-						cache.Del(ctrData.ID)
+						delete(cache, ctrData.ID)
 					}
 				}
 			}
@@ -303,7 +289,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 	}
 }
 
-func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache *ristretto.Cache[string, string]) {
+func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int) {
 	// Connect to Docker socket
 	dockerClient, err := docker_client.NewClientWithOpts(
 		docker_client.WithHost(socket),
@@ -356,8 +342,8 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					log.Println("Health status for container " + ctrData.Name + ": " + healthstatus)
 				}
 				if healthstatus != "healthy" && healthstatus != "starting" {
-					_, found := cache.Get(ctrData.ID)
-					if !found {
+					found := cache[ctrData.ID]
+					if found == 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
 							err := shoutrrr.Send(containerErrorUrl, "ERROR: Container: " + ctrData.Name + " has the health status: " + healthstatus)
@@ -365,14 +351,11 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 								log.Println("Failed to send error log: " + err.Error())
 							}
 						}
-						// set a value with a cost of 1
-						cache.Set(ctrData.ID, healthstatus, 1)
-						// wait for value to pass through buffers
-						cache.Wait()
+						cache[ctrData.ID] = 1
 					}
 				} else {
-					_, found := cache.Get(ctrData.ID)
-					if found {
+					found := cache[ctrData.ID]
+					if found != 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
 							err := shoutrrr.Send(containerErrorUrl, "RECOVERED: Container: " + ctrData.Name + " has recovered the health status: " + healthstatus)
@@ -380,7 +363,7 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 								log.Println("Failed to send error log: " + err.Error())
 							}
 						}
-						cache.Del(ctrData.ID)
+						delete(cache, ctrData.ID)
 					}
 				}
 			} else {
@@ -389,8 +372,8 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					log.Println("Container status for container " + ctrData.Name + ": " + containerStatus)
 				}
 				if containerStatus != "running" {
-					_, found := cache.Get(ctrData.ID)
-					if !found {
+					found := cache[ctrData.ID]
+					if found == 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
 							err := shoutrrr.Send(containerErrorUrl, "ERROR: Container: " + ctrData.Name + " has the container status: " + containerStatus)
@@ -398,21 +381,18 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 								log.Println("Failed to send error log: " + err.Error())
 							}
 						}
-						// set a value with a cost of 1
-						cache.Set(ctrData.ID, containerStatus, 1)
-						// wait for value to pass through buffers
-						cache.Wait()
+						cache[ctrData.ID] = 1
 					}
 				} else {
-					_, found := cache.Get(ctrData.ID)
-					if found {
+					found := cache[ctrData.ID]
+					if found != 0 {
 						if containerErrorUrl != "" {
 							err := shoutrrr.Send(containerErrorUrl, "RECOVERED: Container: " + ctrData.Name + " has recovered with status: " + containerStatus)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
 						}
-						cache.Del(ctrData.ID)
+						delete(cache, ctrData.ID)
 					}
 				}
 			}
