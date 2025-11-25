@@ -5,6 +5,12 @@ on:
     tags:
       - v*
 
+env:
+  DOCKER_PLATFORMS: |
+    linux/amd64
+    linux/arm/v7
+    linux/arm64
+
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -21,13 +27,29 @@ jobs:
       -
         name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ env.DOCKER_PLATFORMS }}
       -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+          install: true
+          platforms: ${{ env.DOCKER_PLATFORMS }}
+      -
+        name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            kevincfechtel/containermon
+          tags: |
+            type=semver,pattern={{version}}
       -
         name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: kevincfechtel/containermon:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
