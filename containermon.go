@@ -26,6 +26,9 @@ func main() {
 	var cronContainerHealthConfig string
 	var cronHostHealthConfig string
 	var enableDebugging bool
+	var messageOnStartup bool
+	greenBubble := "\U0001F7E2"
+	redBubble := "\U0001F534"
     
 	flag.StringVar(&socketPath, "socketPath", "", "Socket file path for Container engine")
 	if(socketPath == "") {
@@ -55,6 +58,15 @@ func main() {
 			enableDebugging = false
 		}
 	}
+
+	flag.BoolVar(&messageOnStartup, "messageOnStartup", false, "Send startup message")
+	if os.Getenv("ENABLE_MESSAGE_ON_STARTUP") != "" {
+		if os.Getenv("ENABLE_MESSAGE_ON_STARTUP") == "true" {
+			messageOnStartup = true
+		} else {
+			messageOnStartup = false
+		}
+	}
 	socket := ""
 	if strings.Contains(socketPath,"podman") {
 		socket = "unix:" + socketPath
@@ -71,6 +83,12 @@ func main() {
 		log.Printf("Container error URL: %s\n", containerErrorUrl)
 		log.Printf("Cron Host health Scheduler Config: %s\n", cronHostHealthConfig)
 		log.Printf("Cron Container health Scheduler Config: %s\n", cronContainerHealthConfig)
+		log.Printf("Message on Startup %s\n", messageOnStartup)
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Println("Failed to get Hostname: " + err.Error())
 	}
 
 	s, err := gocron.NewScheduler()
@@ -106,12 +124,12 @@ func main() {
 						if enableDebugging {
 							log.Println("Using Podman health check")
 						}
-						podmanHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache)
+						podmanHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache, hostname, redBubble, greenBubble)
 					} else {
 						if enableDebugging {
 							log.Println("Using Docker health check")
 						}
-						dockerHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache)
+						dockerHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache, hostname, redBubble, greenBubble)
 					}
 				},
 			),
@@ -164,6 +182,12 @@ func main() {
 	} else {
 		log.Println("No Host Health Check cron configuration provided, skipping host health check setup")
 	}
+	if messageOnStartup {
+		err := shoutrrr.Send(containerErrorUrl, "*STARTUP:* ContainerMon has started successfully on Host *" + hostname + "* " + greenBubble)
+		if err != nil {
+			log.Println("Failed to send error log: " + err.Error())
+		}
+	}
 	if len(s.Jobs()) > 0 {
 		s.Start()
 		select {} 
@@ -172,7 +196,7 @@ func main() {
 	}	
 }
 
-func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int) {
+func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string) {
 	// Connect to Podman socket
 	connText, err := podman_binding.NewConnection(context.Background(), socket)
 	if err != nil {
@@ -232,7 +256,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 						if found == 0 {
 							// Report unhealthy container via healthcheck URL
 							if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "ERROR: Container: " + ctrData.Name + " has the health status: " + healthstatus)
+							err := shoutrrr.Send(containerErrorUrl, "*ERROR:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has the health status: *" + healthstatus + "* " + redBubble)
 								if err != nil {
 									log.Println("Failed to send error log: " + err.Error())
 								}
@@ -244,7 +268,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 						if found != 0 {
 							// Report unhealthy container via healthcheck URL
 							if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "RECOVERED: Container: " + ctrData.Name + " has recovered the health status: " + healthstatus)
+							err := shoutrrr.Send(containerErrorUrl, "*RECOVERED:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has recovered the health status: *" + healthstatus + "* " + greenBubble)
 								if err != nil {
 									log.Println("Failed to send error log: " + err.Error())
 								}
@@ -264,7 +288,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found == 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "ERROR: Container: " + ctrData.Name + " has the container status: " + containerStatus)
+							err := shoutrrr.Send(containerErrorUrl, "*ERROR:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has the container status: *" + containerStatus + "* " + redBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -276,7 +300,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found != 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "RECOVERED: Container: " + ctrData.Name + " has recovered with status: " + containerStatus)
+							err := shoutrrr.Send(containerErrorUrl, "*RECOVERED:* Container: *" + ctrData.Name  + "* on Host *" + hostname + "* has recovered with status: *" + containerStatus + "* " + greenBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -289,7 +313,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 	}
 }
 
-func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int) {
+func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string) {
 	// Connect to Docker socket
 	dockerClient, err := docker_client.NewClientWithOpts(
 		docker_client.WithHost(socket),
@@ -346,7 +370,7 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found == 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "ERROR: Container: " + ctrData.Name + " has the health status: " + healthstatus)
+							err := shoutrrr.Send(containerErrorUrl, "*ERROR:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has the health status: *" + healthstatus + "* " + redBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -358,7 +382,7 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found != 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "RECOVERED: Container: " + ctrData.Name + " has recovered the health status: " + healthstatus)
+							err := shoutrrr.Send(containerErrorUrl, "*RECOVERED:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has recovered the health status: *" + healthstatus + "* " + greenBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -376,7 +400,7 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found == 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "ERROR: Container: " + ctrData.Name + " has the container status: " + containerStatus)
+							err := shoutrrr.Send(containerErrorUrl, "*ERROR:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has the container status: *" + containerStatus + "* " + redBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -387,7 +411,7 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					found := cache[ctrData.ID]
 					if found != 0 {
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "RECOVERED: Container: " + ctrData.Name + " has recovered with status: " + containerStatus)
+							err := shoutrrr.Send(containerErrorUrl, "*RECOVERED:* Container: *" + ctrData.Name  + "* on Host *" + hostname + "* has recovered with status: *" + containerStatus + "* " + greenBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
