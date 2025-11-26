@@ -183,7 +183,7 @@ func main() {
 		log.Println("No Host Health Check cron configuration provided, skipping host health check setup")
 	}
 	if messageOnStartup {
-		err := shoutrrr.Send(containerErrorUrl, "*STARTUP:* ContainerMon has started successfully on Host *" + hostname + "* " + greenBubble)
+		err := shoutrrr.Send(containerErrorUrl, "<b>STARTUP:</b> ContainerMon has started successfully on Host <b>" + hostname + "</b> " + greenBubble)
 		if err != nil {
 			log.Println("Failed to send error log: " + err.Error())
 		}
@@ -256,7 +256,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 						if found == 0 {
 							// Report unhealthy container via healthcheck URL
 							if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "*ERROR:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has the health status: *" + healthstatus + "* " + redBubble)
+							err := shoutrrr.Send(containerErrorUrl, "<b>ERROR:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has the health status: <b>" + healthstatus + "</b> " + redBubble)
 								if err != nil {
 									log.Println("Failed to send error log: " + err.Error())
 								}
@@ -268,7 +268,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 						if found != 0 {
 							// Report unhealthy container via healthcheck URL
 							if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "*RECOVERED:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has recovered the health status: *" + healthstatus + "* " + greenBubble)
+							err := shoutrrr.Send(containerErrorUrl, "<b>RECOVERED:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has recovered the health status: <b>" + healthstatus + "</b> " + greenBubble)
 								if err != nil {
 									log.Println("Failed to send error log: " + err.Error())
 								}
@@ -288,7 +288,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found == 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "*ERROR:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has the container status: *" + containerStatus + "* " + redBubble)
+							err := shoutrrr.Send(containerErrorUrl, "<b>ERROR:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has the container status: <b>" + containerStatus + "</b> " + redBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -300,7 +300,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found != 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "*RECOVERED:* Container: *" + ctrData.Name  + "* on Host *" + hostname + "* has recovered with status: *" + containerStatus + "* " + greenBubble)
+							err := shoutrrr.Send(containerErrorUrl, "<b>RECOVERED:</b> Container: <b>" + ctrData.Name  + "</b> on Host <b>" + hostname + "</b> has recovered with status: <b>" + containerStatus + "</b> " + greenBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -370,7 +370,7 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found == 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "*ERROR:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has the health status: *" + healthstatus + "* " + redBubble)
+							err := shoutrrr.Send(containerErrorUrl, "<b>ERROR:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has the health status: <b>" + healthstatus + "</b> " + redBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -382,7 +382,7 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found != 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "*RECOVERED:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has recovered the health status: *" + healthstatus + "* " + greenBubble)
+							err := shoutrrr.Send(containerErrorUrl, "<b>RECOVERED:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has recovered the health status: <b>" + healthstatus + "</b> " + greenBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -400,7 +400,7 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					if found == 0 {
 						// Report unhealthy container via healthcheck URL
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "*ERROR:* Container: *" + ctrData.Name + "* on Host *" + hostname + "* has the container status: *" + containerStatus + "* " + redBubble)
+							err := shoutrrr.Send(containerErrorUrl, "<b>ERROR:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has the container status: <b>" + containerStatus + "</b> " + redBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
@@ -411,7 +411,7 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 					found := cache[ctrData.ID]
 					if found != 0 {
 						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "*RECOVERED:* Container: *" + ctrData.Name  + "* on Host *" + hostname + "* has recovered with status: *" + containerStatus + "* " + greenBubble)
+							err := shoutrrr.Send(containerErrorUrl, "<b>RECOVERED:</b> Container: <b>" + ctrData.Name  + "</b> on Host <b>" + hostname + "</b> has recovered with status: <b>" + containerStatus + "</b> " + greenBubble)
 							if err != nil {
 								log.Println("Failed to send error log: " + err.Error())
 							}
