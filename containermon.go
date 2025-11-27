@@ -129,7 +129,6 @@ func main() {
 	cache := make(map[string]int)
 
 	db, _ := sql.Open("sqlite", "file:"+dbPath)
-	err := db.Ping()
 	sqlCreateTable := `
 	CREATE TABLE IF NOT EXISTS containers (
 		ID TEXT PRIMARY KEY,
@@ -140,13 +139,9 @@ func main() {
 		ImageDigest TEXT,
 		ImageDigestNew TEXT
 	);`
-	_, err = db.Exec(sqlCreateTable)
+	_, err := db.Exec(sqlCreateTable)
 	if err != nil {
-		log.Fatal("error creating containers table: ", err)
-	}
-
-	if err != nil {
-		log.Fatal("error initializing DB connection: ping error: ", err)
+		log.Println("error creating containers table: ", err)
 	}
 	defer db.Close()
 
@@ -318,7 +313,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 	// Connect to Podman socket
 	connText, err := podman_binding.NewConnection(context.Background(), socket)
 	if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 			os.Exit(1)
 	}
 	if enableDebugging {
@@ -330,7 +325,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 	options.WithAll(true)
 	containerLatestList, err := podman_containers.List(connText, &options)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		os.Exit(1)
 	}
 	if enableDebugging {
@@ -342,7 +337,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 	}
 	imageList, err := podman_images.List(connText, &image_options)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		os.Exit(1)
 	}
 	// Process each container
@@ -350,8 +345,8 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 		// Inspect each container
 		ctrData, err := podman_containers.Inspect(connText, r.ID, nil)
 		if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
+			log.Println(err)
+			os.Exit(1)
 		}
 		if enableDebugging {
 			log.Println("Inspection read for container: " + ctrData.Name)
@@ -379,15 +374,15 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 		case sql.ErrNoRows:
 			err = db.QueryRow(sqlInsertStatement, container.ID, container.Name, hostname, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest).Scan(&sqlContainerID)
 			if err != nil {
-				panic(err)
+				log.Println(err)
 			}
 		case nil:
 			_, err = db.Exec(sqlUpdateStatement, container.ID, container.Name, hostname, container.Status, container.ImageName, container.ImageDigest)
 			if err != nil {
-				panic(err)
+				log.Println(err)
 			}
 		default:
-			panic(err)
+			log.Println(err)
 		}
 
 		// Check for skip label
@@ -592,29 +587,29 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 		}
 		req, err := http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 
 		req.Header.Set("User-Agent", "spacecount-tutorial")
 
 		res, getErr := client.Do(req)
 		if getErr != nil {
-			log.Fatal(getErr)
+			log.Println(err)
 		}
 
 		if res.Body != nil {
 			defer res.Body.Close()
 		}
 
-		body, readErr := io.ReadAll(res.Body)
-		if readErr != nil {
-			log.Fatal(readErr)
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			log.Println(err)
 		}
 
 		containers := []Container{}
-		jsonErr := json.Unmarshal(body, &containers)
-		if jsonErr != nil {
-			log.Fatal(jsonErr)
+		err = json.Unmarshal(body, &containers)
+		if err != nil {
+			log.Println(err)
 		}
 
 		for _, container := range containers {
@@ -630,7 +625,7 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 
 			_, err = db.Exec(sqlInsertStatement, container.ID, container.Name, container.Host, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest)
 			if err != nil {
-				log.Fatal("error inserting/updating container from remote data: ", err)
+				log.Println("error inserting/updating container from remote data: ", err)
 			}
 		}
 	}
@@ -643,7 +638,7 @@ func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
 	`
 	rows, err := fh.DB.Query(sqlQueryAllContainers)
 	if err != nil {
-		log.Fatal("error querying containers: ", err)
+		log.Println("error querying containers: ", err)
 	}
 	defer rows.Close()
 
@@ -651,7 +646,7 @@ func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, name, host, status, imageName, imageDigest, imageDigestNew string
 		if err := rows.Scan(&id, &name, &status, &imageName, &imageDigest); err != nil {
-			log.Fatal("error scanning container row: ", err)
+			log.Println("error scanning container row: ", err)
 		}	
 		container := Container{
 			ID: id,
@@ -665,7 +660,7 @@ func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
 		containers = append(containers, container)
 	}
 	if err := rows.Err(); err != nil {
-		log.Fatal("error iterating over container rows: ", err)
+		log.Println("error iterating over container rows: ", err)
 	}
 
 	data := ContainerPageData{
@@ -685,7 +680,7 @@ func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
 	`
 	rows, err := fh.DB.Query(sqlQueryAllContainers)
 	if err != nil {
-		log.Fatal("error querying containers: ", err)
+		log.Println("error querying containers: ", err)
 	}
 	defer rows.Close()
 
@@ -693,7 +688,7 @@ func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, name, status, imageName, imageDigest string
 		if err := rows.Scan(&id, &name, &status, &imageName, &imageDigest); err != nil {
-			log.Fatal("error scanning container row: ", err)
+			log.Println("error scanning container row: ", err)
 		}	
 		container := Container{
 			ID: id,
@@ -707,13 +702,12 @@ func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
 		containers = append(containers, container)
 	}
 	if err := rows.Err(); err != nil {
-		log.Fatal("error iterating over container rows: ", err)
+		log.Println("error iterating over container rows: ", err)
 	}
 
 	data, err := json.Marshal(containers)
     if err != nil {
-        fmt.Println(err)
-        return
+        log.Println(err)
     }
     fmt.Fprintf(w, string(data))
 }
@@ -728,19 +722,18 @@ func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 	}
 
-	body, readErr := io.ReadAll(r.Body)
-	if readErr != nil {
-		log.Fatal(readErr)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Println(err)
 	}
 
-	err := json.Unmarshal(body, &duinBody)
+	err = json.Unmarshal(body, &duinBody)
     if err != nil {
-        fmt.Println(err)
-        return
+        log.Println(err)
     }
 	_, err = fh.DB.Exec(sqlUpdateStatement, duinBody.Image, duinBody.Digest)
-			if err != nil {
-				panic(err)
-			}
+	if err != nil {
+		log.Println(err)
+	}
     fmt.Fprintf(w, "Ok")
 }
