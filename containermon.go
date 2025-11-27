@@ -276,7 +276,7 @@ func main() {
 			log.Println("Failed to config scheduler job: " + err.Error())
 		}
 	} else {
-		log.Println("No Container Health Check cron configuration provided, skipping container health check setup")
+		log.Println("No Remote Data Fetch cron configuration provided, skipping remote data fetch setup")
 	}
 	if messageOnStartup {
 		err := shoutrrr.Send(containerErrorUrl, "<b>STARTUP:</b> ContainerMon has started successfully on Host <b>" + hostname + "</b> " + greenBubble)
