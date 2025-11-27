@@ -11,11 +11,11 @@
 <body>
     <h1>{{.PageTitle}}</h1>
     <div class="table-responsive">
-        <table class="table">
+        <table class="table table-bordered">
             <thead>
                 <tr>
-                    <th scope="col">Container ID</th>
                     <th scope="col">Container Name</th>
+                    <th scope="col">Container Host</th>
                     <th scope="col">Container Status</th>
                     <th scope="col">Container Image Name</th>
                     <th scope="col">Container Image Digest</th>
@@ -26,6 +26,7 @@
             <tr>
                 <td scope="row">{{.ID}}</td>
                 <td>{{.Name}}</td>
+                <td>{{.Host}}</td>
                 {{if eq .Status "running"}}
                 <td class="bg-success">{{.Status}}</td>
                 {{else if eq .Status "healthy"}}

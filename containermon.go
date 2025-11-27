@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -24,15 +26,32 @@ import (
 )
 
 type Container struct {
-    ID 			string
-    Name     	string
-	Status 		string
-	ImageName 	string
-	ImageDigest string
+    ID 				string
+	Host 			string
+    Name     		string
+	Status 			string
+	ImageName 		string
+	ImageDigest 	string
+	ImageDigestNew 	string
 }
 
-type MainpageHandler struct {
+type DuinWebHookBody struct {
+    Hostname 	string
+	Status 		string
+    Provider    string
+	Image 		string
+	Digest 		string
+	Created 	string
+	Platform 	string
+}
+
+type Handler struct {
     DB *sql.DB
+}
+
+type ContainerPageData struct {
+    PageTitle 	string
+    Containers 	[]Container
 }
 
 
@@ -40,8 +59,10 @@ func main() {
 	var socketPath string
 	var hostHealthcheckUrl string
 	var containerErrorUrl string
+	var remoteConfig string
 	var cronContainerHealthConfig string
 	var cronHostHealthConfig string
+	var cronRemoteConfig string
 	var enableDebugging bool
 	var messageOnStartup bool
 	var dbPath string
@@ -67,6 +88,14 @@ func main() {
 	flag.StringVar(&cronHostHealthConfig, "cronHostHealthConfig", "", "Cron scheduler configuration for Host health check")
 	if(cronHostHealthConfig == "") {
 		cronHostHealthConfig = os.Getenv("CRON_HOST_HEALTH_CONFIG")
+	}
+	flag.StringVar(&remoteConfig, "remoteConfig", "", "Remote configuration, seperated by commas")
+	if(remoteConfig == "") {
+		remoteConfig = os.Getenv("REMOTE_CONFIG")
+	}
+	flag.StringVar(&cronRemoteConfig, "cronRemoteConfig", "", "Cron scheduler configuration for Remote data fetch")
+	if(cronRemoteConfig == "") {
+		cronRemoteConfig = os.Getenv("CRON_REMOTE_CONFIG")
 	}
 	flag.BoolVar(&enableDebugging, "debug", false, "Enable debug logging")
 	if os.Getenv("ENABLE_DEBUGGING") != "" {
@@ -104,10 +133,12 @@ func main() {
 	sqlCreateTable := `
 	CREATE TABLE IF NOT EXISTS containers (
 		ID TEXT PRIMARY KEY,
+		Host TEST,
 		Name TEXT,
 		Status TEXT,
 		ImageName TEXT,
-		ImageDigest TEXT
+		ImageDigest TEXT,
+		ImageDigestNew TEXT
 	);`
 	_, err = db.Exec(sqlCreateTable)
 	if err != nil {
@@ -225,6 +256,33 @@ func main() {
 	} else {
 		log.Println("No Host Health Check cron configuration provided, skipping host health check setup")
 	}
+	if cronRemoteConfig != "" {
+		secondsInRemoteCron := false
+		if strings.Count(cronRemoteConfig, " ") > 4 {
+			secondsInRemoteCron = true
+		}
+		defer func() { _ = s.Shutdown() }()
+		_, err = s.NewJob(
+			gocron.CronJob(
+				cronRemoteConfig,
+				secondsInRemoteCron,
+			),
+			gocron.NewTask(
+				func() {
+					if enableDebugging {
+						log.Println("Starting Cron for Remote Data Fetch")
+					}
+					
+					getAndStoreRemoteData(remoteConfig, db)
+				},
+			),
+		)
+		if err != nil {
+			log.Println("Failed to config scheduler job: " + err.Error())
+		}
+	} else {
+		log.Println("No Container Health Check cron configuration provided, skipping container health check setup")
+	}
 	if messageOnStartup {
 		err := shoutrrr.Send(containerErrorUrl, "<b>STARTUP:</b> ContainerMon has started successfully on Host <b>" + hostname + "</b> " + greenBubble)
 		if err != nil {
@@ -236,21 +294,27 @@ func main() {
 	} else {
 		log.Println("No cron jobs configured, exiting")
 	}
-	mainPageHandler := &MainpageHandler{DB: db}
-	http.HandleFunc("/", mainPageHandler.handler)
+	Handler := &Handler{DB: db}
+	http.HandleFunc("/", Handler.handleWebGui)
+	http.HandleFunc("/json", Handler.handleJsonExport)
+	http.HandleFunc("/webhook", Handler.handleWebhookExport)
 	http.ListenAndServe(":80", nil) 
 }
 
 func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string, db *sql.DB) {
 	sqlInsertStatement := `
-		INSERT INTO containers (ID, Name, Status, ImageName, ImageDigest)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id`
 
 	sqlUpdateStatement := `
 			UPDATE containers
-			SET Name = $2, Status = $3, ImageName = $4, ImageDigest = $5
+			SET Name = $2, Host = $3, Status = $4, ImageName = $5, ImageDigest = $6
 			WHERE id = $1;`
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Println("Failed to get Hostname: " + err.Error())
+	}
 	// Connect to Podman socket
 	connText, err := podman_binding.NewConnection(context.Background(), socket)
 	if err != nil {
@@ -313,12 +377,12 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 		row := db.QueryRow("SELECT ID FROM containers WHERE ID = ?", container.ID)
 		switch err := row.Scan(&sqlContainerID); err {
 		case sql.ErrNoRows:
-			err = db.QueryRow(sqlInsertStatement, container.ID, container.Name, container.Status, container.ImageName, container.ImageDigest).Scan(&sqlContainerID)
+			err = db.QueryRow(sqlInsertStatement, container.ID, container.Name, hostname, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest).Scan(&sqlContainerID)
 			if err != nil {
 				panic(err)
 			}
 		case nil:
-			_, err = db.Exec(sqlUpdateStatement, container.ID, container.Name, container.Status, container.ImageName, container.ImageDigest)
+			_, err = db.Exec(sqlUpdateStatement, container.ID, container.Name, hostname, container.Status, container.ImageName, container.ImageDigest)
 			if err != nil {
 				panic(err)
 			}
@@ -520,13 +584,102 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 	}
 }
 
-type ContainerPageData struct {
-    PageTitle string
-    Containers []Container
+func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
+	urls := strings.Split(remoteConfig, ",")
+	for _, url := range urls {
+		client := http.Client{
+			Timeout: time.Second * 2, // Timeout after 2 seconds
+		}
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		req.Header.Set("User-Agent", "spacecount-tutorial")
+
+		res, getErr := client.Do(req)
+		if getErr != nil {
+			log.Fatal(getErr)
+		}
+
+		if res.Body != nil {
+			defer res.Body.Close()
+		}
+
+		body, readErr := io.ReadAll(res.Body)
+		if readErr != nil {
+			log.Fatal(readErr)
+		}
+
+		containers := []Container{}
+		jsonErr := json.Unmarshal(body, &containers)
+		if jsonErr != nil {
+			log.Fatal(jsonErr)
+		}
+
+		for _, container := range containers {
+			sqlInsertStatement := `
+			INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT(ID) DO UPDATE SET
+			Name = excluded.Name,
+			Host = excluded.Host,
+			Status = excluded.Status,
+			ImageName = excluded.ImageName,
+			ImageDigest = excluded.ImageDigest;`
+
+			_, err = db.Exec(sqlInsertStatement, container.ID, container.Name, container.Host, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest)
+			if err != nil {
+				log.Fatal("error inserting/updating container from remote data: ", err)
+			}
+		}
+	}
 }
 
-func (fh *MainpageHandler) handler(w http.ResponseWriter, r *http.Request) {
+func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
 	tmpl := template.Must(template.ParseFiles("layout.html"))
+	sqlQueryAllContainers := `
+	SELECT ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew FROM containers;
+	`
+	rows, err := fh.DB.Query(sqlQueryAllContainers)
+	if err != nil {
+		log.Fatal("error querying containers: ", err)
+	}
+	defer rows.Close()
+
+	var containers []Container
+	for rows.Next() {
+		var id, name, host, status, imageName, imageDigest, imageDigestNew string
+		if err := rows.Scan(&id, &name, &status, &imageName, &imageDigest); err != nil {
+			log.Fatal("error scanning container row: ", err)
+		}	
+		container := Container{
+			ID: id,
+			Host: host,
+			Name: name,	
+			Status: status,
+			ImageName: imageName,
+			ImageDigest: imageDigest,
+			ImageDigestNew: imageDigestNew,
+		}
+		containers = append(containers, container)
+	}
+	if err := rows.Err(); err != nil {
+		log.Fatal("error iterating over container rows: ", err)
+	}
+
+	data := ContainerPageData{
+		PageTitle: "ContainerMon - Monitored Containers",
+		Containers: containers,
+	}
+    tmpl.Execute(w, data)
+}
+
+func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Println("Failed to get Hostname: " + err.Error())
+	}
 	sqlQueryAllContainers := `
 	SELECT ID, Name, Status, ImageName, ImageDigest FROM containers;
 	`
@@ -544,10 +697,12 @@ func (fh *MainpageHandler) handler(w http.ResponseWriter, r *http.Request) {
 		}	
 		container := Container{
 			ID: id,
+			Host: hostname,
 			Name: name,	
 			Status: status,
 			ImageName: imageName,
 			ImageDigest: imageDigest,
+			ImageDigestNew: "",
 		}
 		containers = append(containers, container)
 	}
@@ -555,9 +710,37 @@ func (fh *MainpageHandler) handler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal("error iterating over container rows: ", err)
 	}
 
-	data := ContainerPageData{
-		PageTitle: "ContainerMon - Monitored Containers",
-		Containers: containers,
+	data, err := json.Marshal(containers)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    fmt.Fprintf(w, string(data))
+}
+
+func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
+	sqlUpdateStatement := `
+			UPDATE containers
+			SET ImageDigestNew = $2
+			WHERE ImageName = $1;`
+	duinBody := DuinWebHookBody{}
+	if r.Body != nil {
+		defer r.Body.Close()
 	}
-    tmpl.Execute(w, data)
+
+	body, readErr := io.ReadAll(r.Body)
+	if readErr != nil {
+		log.Fatal(readErr)
+	}
+
+	err := json.Unmarshal(body, &duinBody)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+	_, err = fh.DB.Exec(sqlUpdateStatement, duinBody.Image, duinBody.Digest)
+			if err != nil {
+				panic(err)
+			}
+    fmt.Fprintf(w, "Ok")
 }
