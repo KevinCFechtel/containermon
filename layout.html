@@ -11,7 +11,9 @@
     <tr>
         <td>{{.ID}}</td>
         <td>{{.Name}}</td>
-        {{if .Status == "running" || .Status == "healthy"}}
+        {{if eq .Status "running"}}
+        <td bgcolor="green">{{.Status}}</td>
+        {{else if eq .Status "healthy"}}
         <td bgcolor="green">{{.Status}}</td>
         {{else}}
         <td bgcolor="red">{{.Status}}</td>
