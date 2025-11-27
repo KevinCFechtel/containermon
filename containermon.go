@@ -466,6 +466,24 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 			}
 		}
 	}
+	localContainers, err := selectAllContainers(db, hostname)
+	for _, localContainer := range localContainers {
+		found := false
+		for _, latestContainer := range containerLatestList {
+			if localContainer.ID == latestContainer.ID {
+				found = true
+			}
+		}
+		if !found {
+			sqlDeleteStatement := `
+			DELETE FROM containers
+			WHERE ID = $1;`
+			_, err = db.Exec(sqlDeleteStatement, localContainer.ID)
+			if err != nil {
+				log.Println("error deleting container not in remote data: ", err)
+			}
+		}
+	}
 }
 
 func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string) {
@@ -628,39 +646,32 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 				log.Println("error inserting/updating container from remote data: ", err)
 			}
 		}
+		localContainers, err := selectAllContainers(db, containers[0].Host)
+		for _, localContainer := range localContainers {
+			found := false
+			for _, remoteContainer := range containers {
+				if localContainer.ID == remoteContainer.ID {
+					found = true
+				}
+			}
+			if !found {
+				sqlDeleteStatement := `
+				DELETE FROM containers
+				WHERE ID = $1;`
+				_, err = db.Exec(sqlDeleteStatement, localContainer.ID)
+				if err != nil {
+					log.Println("error deleting container not in remote data: ", err)
+				}
+			}
+		}
 	}
 }
 
 func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
 	tmpl := template.Must(template.ParseFiles("layout.html"))
-	sqlQueryAllContainers := `
-	SELECT ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew FROM containers;
-	`
-	rows, err := fh.DB.Query(sqlQueryAllContainers)
+	containers, err := selectAllContainers(fh.DB, "")
 	if err != nil {
-		log.Println("error querying containers: ", err)
-	}
-	defer rows.Close()
-
-	var containers []Container
-	for rows.Next() {
-		var id, name, host, status, imageName, imageDigest, imageDigestNew string
-		if err := rows.Scan(&id, &name, &host, &status, &imageName, &imageDigest, &imageDigestNew); err != nil {
-			log.Println("error scanning container row: ", err)
-		}	
-		container := Container{
-			ID: id,
-			Host: host,
-			Name: name,	
-			Status: status,
-			ImageName: imageName,
-			ImageDigest: imageDigest,
-			ImageDigestNew: imageDigestNew,
-		}
-		containers = append(containers, container)
-	}
-	if err := rows.Err(); err != nil {
-		log.Println("error iterating over container rows: ", err)
+		log.Println("error selecting containers: ", err)
 	}
 
 	data := ContainerPageData{
@@ -675,34 +686,10 @@ func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Println("Failed to get Hostname: " + err.Error())
 	}
-	sqlQueryAllContainers := `
-	SELECT ID, Name, Status, ImageName, ImageDigest FROM containers;
-	`
-	rows, err := fh.DB.Query(sqlQueryAllContainers)
-	if err != nil {
-		log.Println("error querying containers: ", err)
-	}
-	defer rows.Close()
 
-	var containers []Container
-	for rows.Next() {
-		var id, name, status, imageName, imageDigest string
-		if err := rows.Scan(&id, &name, &status, &imageName, &imageDigest); err != nil {
-			log.Println("error scanning container row: ", err)
-		}	
-		container := Container{
-			ID: id,
-			Host: hostname,
-			Name: name,	
-			Status: status,
-			ImageName: imageName,
-			ImageDigest: imageDigest,
-			ImageDigestNew: "",
-		}
-		containers = append(containers, container)
-	}
-	if err := rows.Err(); err != nil {
-		log.Println("error iterating over container rows: ", err)
+	containers, err := selectAllContainers(fh.DB, hostname)
+	if err != nil {
+		log.Println("error selecting containers: ", err)
 	}
 
 	data, err := json.Marshal(containers)
@@ -736,4 +723,46 @@ func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 	}
     fmt.Fprintf(w, "Ok")
+}
+
+func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
+	sqlQueryAllContainers := ""
+	if hostname != "" {
+		sqlQueryAllContainers = `
+		SELECT ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew FROM containers;
+		WHERE Host = ?;`
+	} else {
+		sqlQueryAllContainers = `
+		SELECT ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew FROM containers ORDER BY Host;
+		`
+	}
+
+	rows, err := db.Query(sqlQueryAllContainers, hostname)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var containers []Container
+	for rows.Next() {
+		var id, name, host, status, imageName, imageDigest, imageDigestNew string
+		if err := rows.Scan(&id, &name, &host, &status, &imageName, &imageDigest, &imageDigestNew); err != nil {
+			return nil, err
+		}	
+		container := Container{
+			ID: id,
+			Host: host,
+			Name: name,	
+			Status: status,
+			ImageName: imageName,
+			ImageDigest: imageDigest,
+			ImageDigestNew: imageDigestNew,
+		}
+		containers = append(containers, container)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return containers, nil
 }

@@ -18,8 +18,6 @@
                     <th scope="col">Container Host</th>
                     <th scope="col">Container Status</th>
                     <th scope="col">Container Image Name</th>
-                    <th scope="col">Container Image Digest</th>
-                    <th scope="col">Container Image Digest New</th>
                 </tr>
             </thead>
 
@@ -34,9 +32,11 @@
                 {{else}}
                 <td class="bg-danger">{{.Status}}</td>
                 {{end}}
-                <td>{{.ImageName}}</td>
-                <td>{{.ImageDigest}}</td>
-                <td>{{.ImageDigestNew}}</td>
+                {{if eq .ImageDigest .ImageDigestNew}}
+                <td class="bg-success">{{.ImageName}}</td>
+                {{else}}
+                <td class="bg-danger">{{.ImageName}}</td>
+                {{end}}
             </tr>
             {{end}}
         </table>
