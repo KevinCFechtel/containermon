@@ -616,52 +616,54 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 			log.Println(err)
 		}
 
-		if res.Body != nil {
-			defer res.Body.Close()
-		}
-
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			log.Println(err)
-		}
-
-		containers := []Container{}
-		err = json.Unmarshal(body, &containers)
-		if err != nil {
-			log.Println(err)
-		}
-
-		for _, container := range containers {
-			sqlInsertStatement := `
-			INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT(ID) DO UPDATE SET
-			Name = excluded.Name,
-			Host = excluded.Host,
-			Status = excluded.Status,
-			ImageName = excluded.ImageName,
-			ImageDigest = excluded.ImageDigest;`
-
-			_, err = db.Exec(sqlInsertStatement, container.ID, container.Name, container.Host, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest)
-			if err != nil {
-				log.Println("error inserting/updating container from remote data: ", err)
+		if res != nil {
+			if res.Body != nil {
+				defer res.Body.Close()
 			}
-		}
-		localContainers, err := selectAllContainers(db, containers[0].Host)
-		for _, localContainer := range localContainers {
-			found := false
-			for _, remoteContainer := range containers {
-				if localContainer.ID == remoteContainer.ID {
-					found = true
+
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				log.Println(err)
+			}
+
+			containers := []Container{}
+			err = json.Unmarshal(body, &containers)
+			if err != nil {
+				log.Println(err)
+			}
+
+			for _, container := range containers {
+				sqlInsertStatement := `
+				INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
+				ON CONFLICT(ID) DO UPDATE SET
+				Name = excluded.Name,
+				Host = excluded.Host,
+				Status = excluded.Status,
+				ImageName = excluded.ImageName,
+				ImageDigest = excluded.ImageDigest;`
+
+				_, err = db.Exec(sqlInsertStatement, container.ID, container.Name, container.Host, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest)
+				if err != nil {
+					log.Println("error inserting/updating container from remote data: ", err)
 				}
 			}
-			if !found {
-				sqlDeleteStatement := `
-				DELETE FROM containers
-				WHERE ID = $1;`
-				_, err = db.Exec(sqlDeleteStatement, localContainer.ID)
-				if err != nil {
-					log.Println("error deleting container not in remote data: ", err)
+			localContainers, err := selectAllContainers(db, containers[0].Host)
+			for _, localContainer := range localContainers {
+				found := false
+				for _, remoteContainer := range containers {
+					if localContainer.ID == remoteContainer.ID {
+						found = true
+					}
+				}
+				if !found {
+					sqlDeleteStatement := `
+					DELETE FROM containers
+					WHERE ID = $1;`
+					_, err = db.Exec(sqlDeleteStatement, localContainer.ID)
+					if err != nil {
+						log.Println("error deleting container not in remote data: ", err)
+					}
 				}
 			}
 		}
