@@ -645,7 +645,7 @@ func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
 	var containers []Container
 	for rows.Next() {
 		var id, name, host, status, imageName, imageDigest, imageDigestNew string
-		if err := rows.Scan(&id, &name, &host, &status, &imageName, &imageDigest, imageDigestNew); err != nil {
+		if err := rows.Scan(&id, &name, &host, &status, &imageName, &imageDigest, &imageDigestNew); err != nil {
 			log.Println("error scanning container row: ", err)
 		}	
 		container := Container{

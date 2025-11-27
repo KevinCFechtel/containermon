@@ -24,7 +24,6 @@
 
             {{range .Containers}}
             <tr>
-                <td scope="row">{{.ID}}</td>
                 <td>{{.Name}}</td>
                 <td>{{.Host}}</td>
                 {{if eq .Status "running"}}
