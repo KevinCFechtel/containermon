@@ -729,7 +729,7 @@ func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
 	sqlQueryAllContainers := ""
 	if hostname != "" {
 		sqlQueryAllContainers = `
-		SELECT ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew FROM containers;
+		SELECT ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew FROM containers
 		WHERE Host = ?;`
 	} else {
 		sqlQueryAllContainers = `
