@@ -19,6 +19,7 @@
                     <th scope="col">Container Status</th>
                     <th scope="col">Container Image Name</th>
                     <th scope="col">Container Image Digest</th>
+                    <th scope="col">Container Image Digest New</th>
                 </tr>
             </thead>
 
@@ -35,6 +36,7 @@
                 {{end}}
                 <td>{{.ImageName}}</td>
                 <td>{{.ImageDigest}}</td>
+                <td>{{.imageDigestNew}}</td>
             </tr>
             {{end}}
         </table>
