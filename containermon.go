@@ -357,7 +357,8 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 				if enableDebugging {
 					log.Println("Image found for container " + ctrData.Name + ": " + img.RepoTags[0])
 				}
-				imageDigest = img.RepoDigests[0]
+				result := strings.SplitAfter(img.RepoDigests[0], "@")
+				imageDigest = result[1]
 			}
 		}
 		container := Container{
