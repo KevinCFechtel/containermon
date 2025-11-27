@@ -31,16 +31,9 @@ func main() {
 	var cronHostHealthConfig string
 	var enableDebugging bool
 	var messageOnStartup bool
+	var dbPath string
 	greenBubble := "\U0001F7E2"
 	redBubble := "\U0001F534"
-	db, _ := sql.Open("sqlite", "file:container.db")
-	err := db.Ping()
-	if err != nil {
-		log.Fatal("error initializing DB connection: ping error: ", err)
-	} else {
-		log.Println("DB connection successful")
-	}
-	defer db.Close()
     
 	flag.StringVar(&socketPath, "socketPath", "", "Socket file path for Container engine")
 	if(socketPath == "") {
@@ -79,6 +72,11 @@ func main() {
 			messageOnStartup = false
 		}
 	}
+	flag.StringVar(&dbPath, "dbPath", "", "Path to Sqlite DB file")
+	if(dbPath == "") {
+		dbPath = os.Getenv("DB_PATH")
+	}
+
 	socket := ""
 	if strings.Contains(socketPath,"podman") {
 		socket = "unix:" + socketPath
@@ -87,6 +85,15 @@ func main() {
 	}
 
 	cache := make(map[string]int)
+
+	db, _ := sql.Open("sqlite", "file:"+dbPath)
+	err := db.Ping()
+	if err != nil {
+		log.Fatal("error initializing DB connection: ping error: ", err)
+	} else {
+		log.Println("DB connection successful")
+	}
+	defer db.Close()
 
 	if enableDebugging {
 		log.Println("Debugging enabled")
