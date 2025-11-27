@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -190,10 +191,11 @@ func main() {
 	}
 	if len(s.Jobs()) > 0 {
 		s.Start()
-		select {} 
 	} else {
 		log.Println("No cron jobs configured, exiting")
-	}	
+	}
+	http.HandleFunc("/", mainPageHandler)
+	http.ListenAndServe(":80", nil) 
 }
 
 func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string) {
@@ -422,4 +424,29 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 			}
 		}
 	}
+}
+
+type Todo struct {
+    Title string
+    Done  bool
+}
+
+
+
+type TodoPageData struct {
+    PageTitle string
+    Todos     []Todo
+}
+
+func mainPageHandler(w http.ResponseWriter, r *http.Request) {
+	tmpl := template.Must(template.ParseFiles("layout.html"))
+	data := TodoPageData{
+            PageTitle: "My TODO list",
+            Todos: []Todo{
+                {Title: "Task 1", Done: false},
+                {Title: "Task 2", Done: true},
+                {Title: "Task 3", Done: true},
+            },
+        }
+        tmpl.Execute(w, data)
 }
