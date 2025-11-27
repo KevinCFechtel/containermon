@@ -585,7 +585,7 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 		client := http.Client{
 			Timeout: time.Second * 2, // Timeout after 2 seconds
 		}
-		req, err := http.NewRequest(http.MethodGet, url, nil)
+		req, err := http.NewRequest(http.MethodGet, "http://" + url + "/json", nil)
 		if err != nil {
 			log.Println(err)
 		}
