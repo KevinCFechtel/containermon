@@ -15,12 +15,25 @@ import (
 
 	podman_binding "github.com/containers/podman/v5/pkg/bindings"
 	podman_containers "github.com/containers/podman/v5/pkg/bindings/containers"
+	podman_images "github.com/containers/podman/v5/pkg/bindings/images"
 	"github.com/containrrr/shoutrrr"
 	docker_container "github.com/docker/docker/api/types/container"
 	docker_client "github.com/docker/docker/client"
 	"github.com/go-co-op/gocron/v2"
 	_ "modernc.org/sqlite"
 )
+
+type Container struct {
+    ID 			string
+    Name     	string
+	Status 		string
+	ImageName 	string
+	ImageDigest string
+}
+
+type MainpageHandler struct {
+    DB *sql.DB
+}
 
 
 func main() {
@@ -88,6 +101,19 @@ func main() {
 
 	db, _ := sql.Open("sqlite", "file:"+dbPath)
 	err := db.Ping()
+	sqlCreateTable := `
+	CREATE TABLE IF NOT EXISTS containers (
+		ID TEXT PRIMARY KEY,
+		Name TEXT,
+		Status TEXT,
+		ImageName TEXT,
+		ImageDigest TEXT
+	);`
+	_, err = db.Exec(sqlCreateTable)
+	if err != nil {
+		log.Fatal("error creating containers table: ", err)
+	}
+
 	if err != nil {
 		log.Fatal("error initializing DB connection: ping error: ", err)
 	} else {
@@ -143,7 +169,7 @@ func main() {
 						if enableDebugging {
 							log.Println("Using Podman health check")
 						}
-						podmanHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache, hostname, redBubble, greenBubble)
+						podmanHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache, hostname, redBubble, greenBubble, db)
 					} else {
 						if enableDebugging {
 							log.Println("Using Docker health check")
@@ -212,11 +238,21 @@ func main() {
 	} else {
 		log.Println("No cron jobs configured, exiting")
 	}
-	http.HandleFunc("/", mainPageHandler)
+	mainPageHandler := &MainpageHandler{DB: db}
+	http.HandleFunc("/", mainPageHandler.handler)
 	http.ListenAndServe(":80", nil) 
 }
 
-func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string) {
+func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string, db *sql.DB) {
+	sqlInsertStatement := `
+		INSERT INTO containers (ID, Name, Status, ImageName, ImageDigest)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id`
+
+	sqlUpdateStatement := `
+			UPDATE containers
+			SET Name = $2, Status = $3, ImageName = $4, ImageDigest = $5
+			WHERE id = $1;`
 	// Connect to Podman socket
 	connText, err := podman_binding.NewConnection(context.Background(), socket)
 	if err != nil {
@@ -238,7 +274,15 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 	if enableDebugging {
 		log.Println("Container list retrieved, total containers: " + fmt.Sprint(len(containerLatestList)))
 	}
-	
+
+	// Image list
+	image_options := podman_images.ListOptions{
+	}
+	imageList, err := podman_images.List(connText, &image_options)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	// Process each container
 	for _, r := range containerLatestList {
 		// Inspect each container
@@ -250,6 +294,40 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 		if enableDebugging {
 			log.Println("Inspection read for container: " + ctrData.Name)
 		}
+		imageDigest := ""
+		for _, img := range imageList {
+			if img.ID == ctrData.Image {
+				if enableDebugging {
+					log.Println("Image found for container " + ctrData.Name + ": " + img.RepoTags[0])
+				}
+				imageDigest = img.RepoDigests[0]
+			}
+		}
+		container := Container{
+			ID:        	ctrData.ID,
+			Name:      	ctrData.Name,
+			Status:    	ctrData.State.Status,
+			ImageName: 	ctrData.Config.Image,
+			ImageDigest: 	imageDigest,
+		}
+
+		sqlContainerID := ""
+		row := db.QueryRow("SELECT ID FROM containers WHERE ID = ?", container.ID)
+		switch err := row.Scan(&sqlContainerID); err {
+		case sql.ErrNoRows:
+			err = db.QueryRow(sqlInsertStatement, container.ID, container.Name, container.Status, container.ImageName, container.ImageDigest).Scan(&sqlContainerID)
+			if err != nil {
+				panic(err)
+			}
+		case nil:
+			_, err = db.Exec(sqlUpdateStatement, container.ID, container.Name, container.Status, container.ImageName, container.ImageDigest)
+			if err != nil {
+				panic(err)
+			}
+		default:
+			panic(err)
+		}
+
 		// Check for skip label
 		inspectContainer := true
 
@@ -444,27 +522,44 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 	}
 }
 
-type Todo struct {
-    Title string
-    Done  bool
-}
-
-
-
-type TodoPageData struct {
+type ContainerPageData struct {
     PageTitle string
-    Todos     []Todo
+    Containers []Container
 }
 
-func mainPageHandler(w http.ResponseWriter, r *http.Request) {
+func (fh *MainpageHandler) handler(w http.ResponseWriter, r *http.Request) {
 	tmpl := template.Must(template.ParseFiles("layout.html"))
-	data := TodoPageData{
-            PageTitle: "My TODO list",
-            Todos: []Todo{
-                {Title: "Task 1", Done: false},
-                {Title: "Task 2", Done: true},
-                {Title: "Task 3", Done: true},
-            },
-        }
-        tmpl.Execute(w, data)
+	sqlQueryAllContainers := `
+	SELECT ID, Name, Status, ImageName, ImageDigest FROM containers;
+	`
+	rows, err := fh.DB.Query(sqlQueryAllContainers)
+	if err != nil {
+		log.Fatal("error querying containers: ", err)
+	}
+	defer rows.Close()
+
+	var containers []Container
+	for rows.Next() {
+		var id, name, status, imageName, imageDigest string
+		if err := rows.Scan(&id, &name, &status, &imageName, &imageDigest); err != nil {
+			log.Fatal("error scanning container row: ", err)
+		}	
+		container := Container{
+			ID: id,
+			Name: name,	
+			Status: status,
+			ImageName: imageName,
+			ImageDigest: imageDigest,
+		}
+		containers = append(containers, container)
+	}
+	if err := rows.Err(); err != nil {
+		log.Fatal("error iterating over container rows: ", err)
+	}
+
+	data := ContainerPageData{
+		PageTitle: "ContainerMon - Monitored Containers",
+		Containers: containers,
+	}
+    tmpl.Execute(w, data)
 }

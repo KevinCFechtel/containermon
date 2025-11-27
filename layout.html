@@ -1,10 +1,23 @@
 <h1>{{.PageTitle}}</h1>
-<ul>
-    {{range .Todos}}
-    {{if .Done}}
-    <li class="done">{{.Title}}</li>
-    {{else}}
-    <li>{{.Title}}</li>
+<table>
+    <tr>
+        <th>Container ID</th>
+        <th>Container Name</th>
+        <th>Container Status</th>
+        <th>Container Image Name</th>
+        <th>Container Image Digest</th>
+    </tr>
+    {{range .Containers}}
+    <tr>
+        <td>{{.ID}}</td>
+        <td>{{.Name}}</td>
+        {{if .Status == "running" || .Status == "healthy"}}
+        <td bgcolor="green">{{.Status}}</td>
+        {{else}}
+        <td bgcolor="red">{{.Status}}</td>
+        {{end}}
+        <td>{{.ImageName}}</td>
+        <td>{{.ImageDigest}}</td>
+    </tr>
     {{end}}
-    {{end}}
-</ul>
+</table>
