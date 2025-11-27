@@ -10,8 +10,8 @@
 
 <body>
     <h1>{{.PageTitle}}</h1>
-    <button class="btn btn-primary" type="button" data-coreui-toggle="collapse"
-        data-coreui-target="#collapseWidthExample" aria-expanded="false" aria-controls="collapseWidthExample">
+    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target=".collapseWidthExample"
+        aria-expanded="false" aria-controls="collapseWidthExample">
         Show Digests
     </button>
     <div class="table-responsive">
@@ -22,8 +22,8 @@
                     <th scope="col">Container Host</th>
                     <th scope="col">Container Status</th>
                     <th scope="col">Container Image Name</th>
-                    <th scope="col" class="collapse" id="collapseWidthExample">Image Digest</th>
-                    <th scope="col" class="collapse" id="collapseWidthExample">New Image Digest</th>
+                    <th scope="col" class="collapse collapseWidthExample">Image Digest</th>
+                    <th scope="col" class="collapse collapseWidthExample">New Image Digest</th>
                 </tr>
             </thead>
 
@@ -43,8 +43,8 @@
                 {{else}}
                 <td class="bg-danger">{{.ImageName}}</td>
                 {{end}}
-                <td class="collapse" id="collapseWidthExample">{{.ImageDigest}}</td>
-                <td class="collapse" id="collapseWidthExample">{{.ImageDigestNew}}</td>
+                <td class="collapse collapseWidthExample">{{.ImageDigest}}</td>
+                <td class="collapse collapseWidthExample">{{.ImageDigestNew}}</td>
             </tr>
             {{end}}
         </table>
