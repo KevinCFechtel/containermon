@@ -246,7 +246,7 @@ func main() {
 func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string, db *sql.DB) {
 	sqlInsertStatement := `
 		INSERT INTO containers (ID, Name, Status, ImageName, ImageDigest)
-		VALUES ($1, $2, $3, $4)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id`
 
 	sqlUpdateStatement := `
