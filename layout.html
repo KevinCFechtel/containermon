@@ -1,25 +1,44 @@
-<h1>{{.PageTitle}}</h1>
-<table>
-    <tr>
-        <th>Container ID</th>
-        <th>Container Name</th>
-        <th>Container Status</th>
-        <th>Container Image Name</th>
-        <th>Container Image Digest</th>
-    </tr>
-    {{range .Containers}}
-    <tr>
-        <td>{{.ID}}</td>
-        <td>{{.Name}}</td>
-        {{if eq .Status "running"}}
-        <td bgcolor="green">{{.Status}}</td>
-        {{else if eq .Status "healthy"}}
-        <td bgcolor="green">{{.Status}}</td>
-        {{else}}
-        <td bgcolor="red">{{.Status}}</td>
-        {{end}}
-        <td>{{.ImageName}}</td>
-        <td>{{.ImageDigest}}</td>
-    </tr>
-    {{end}}
-</table>
+<html>
+
+<head>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
+        crossorigin="anonymous"></script>
+</head>
+
+<body>
+    <h1>{{.PageTitle}}</h1>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col">Container ID</th>
+                    <th scope="col">Container Name</th>
+                    <th scope="col">Container Status</th>
+                    <th scope="col">Container Image Name</th>
+                    <th scope="col">Container Image Digest</th>
+                </tr>
+            </thead>
+
+            {{range .Containers}}
+            <tr>
+                <td scope="row">{{.ID}}</td>
+                <td>{{.Name}}</td>
+                {{if eq .Status "running"}}
+                <td class="bg-success">{{.Status}}</td>
+                {{else if eq .Status "healthy"}}
+                <td class="bg-success">{{.Status}}</td>
+                {{else}}
+                <td class="bg-danger">{{.Status}}</td>
+                {{end}}
+                <td>{{.ImageName}}</td>
+                <td>{{.ImageDigest}}</td>
+            </tr>
+            {{end}}
+        </table>
+    </div>
+</body>
+
+</html>

@@ -116,8 +116,6 @@ func main() {
 
 	if err != nil {
 		log.Fatal("error initializing DB connection: ping error: ", err)
-	} else {
-		log.Println("DB connection successful")
 	}
 	defer db.Close()
 
