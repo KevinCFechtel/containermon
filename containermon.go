@@ -11,12 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
+
 	podman_binding "github.com/containers/podman/v5/pkg/bindings"
 	podman_containers "github.com/containers/podman/v5/pkg/bindings/containers"
 	"github.com/containrrr/shoutrrr"
 	docker_container "github.com/docker/docker/api/types/container"
 	docker_client "github.com/docker/docker/client"
 	"github.com/go-co-op/gocron/v2"
+	_ "github.com/ncruces/go-sqlite3/driver"
+	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
 
@@ -30,6 +34,10 @@ func main() {
 	var messageOnStartup bool
 	greenBubble := "\U0001F7E2"
 	redBubble := "\U0001F534"
+	var version string
+	db, _ := sql.Open("sqlite3", "file:container.db")
+	db.QueryRow(`SELECT sqlite_version()`).Scan(&version)
+	log.Printf("DB Version: %s\n", version)
     
 	flag.StringVar(&socketPath, "socketPath", "", "Socket file path for Container engine")
 	if(socketPath == "") {
