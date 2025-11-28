@@ -136,14 +136,22 @@ func main() {
 		Name TEXT,
 		Status TEXT,
 		ImageName TEXT,
-		ImageDigest TEXT,
-		ImageDigestNew TEXT
+		ImageDigest TEXT
 	);`
 	_, err := db.Exec(sqlCreateTable)
 	if err != nil {
 		log.Println("error creating containers table: ", err)
 	}
 	defer db.Close()
+	sqlCreateTable = `
+	CREATE TABLE IF NOT EXISTS diun (
+		ImageName TEXT PRIMARY KEY,
+		ImageDigest TEXT
+	);`
+	_, err = db.Exec(sqlCreateTable)
+	if err != nil {
+		log.Println("error creating containers table: ", err)
+	}
 
 	if enableDebugging {
 		log.Println("Debugging enabled")
@@ -298,8 +306,8 @@ func main() {
 
 func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string, db *sql.DB) {
 	sqlInsertStatement := `
-		INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id`
 
 	sqlUpdateStatement := `
@@ -373,7 +381,7 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 		row := db.QueryRow("SELECT ID FROM containers WHERE ID = ?", container.ID)
 		switch err := row.Scan(&sqlContainerID); err {
 		case sql.ErrNoRows:
-			err = db.QueryRow(sqlInsertStatement, container.ID, container.Name, hostname, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest).Scan(&sqlContainerID)
+			_, err = db.Exec(sqlInsertStatement, container.ID, container.Name, hostname, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest)
 			if err != nil {
 				log.Println(err)
 			}
@@ -611,9 +619,9 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 
 		req.Header.Set("User-Agent", "spacecount-tutorial")
 
-		res, getErr := client.Do(req)
-		if getErr != nil {
-			log.Println(err)
+		res, err := client.Do(req)
+		if err != nil {
+			log.Println("Could not reach remote: " + err.Error())
 		}
 
 		if res != nil {
@@ -634,8 +642,8 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 
 			for _, container := range containers {
 				sqlInsertStatement := `
-				INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew)
-				VALUES ($1, $2, $3, $4, $5, $6, $7)
+				INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest)
+				VALUES ($1, $2, $3, $4, $5, $6)
 				ON CONFLICT(ID) DO UPDATE SET
 				Name = excluded.Name,
 				Host = excluded.Host,
@@ -643,7 +651,7 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 				ImageName = excluded.ImageName,
 				ImageDigest = excluded.ImageDigest;`
 
-				_, err = db.Exec(sqlInsertStatement, container.ID, container.Name, container.Host, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest)
+				_, err = db.Exec(sqlInsertStatement, container.ID, container.Name, container.Host, container.Status, container.ImageName, container.ImageDigest)
 				if err != nil {
 					log.Println("error inserting/updating container from remote data: ", err)
 				}
@@ -704,9 +712,12 @@ func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
 
 func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
 	sqlUpdateStatement := `
-			UPDATE containers
-			SET ImageDigestNew = $2
+			UPDATE diun
+			SET ImageDigest = $2
 			WHERE ImageName = $1;`
+	sqlInsertStatement := `
+		INSERT INTO diun (ImageName, ImageDigest)
+		VALUES ($1, $2)`
 	duinBody := DuinWebHookBody{}
 	if r.Body != nil {
 		defer r.Body.Close()
@@ -721,10 +732,24 @@ func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Println(err)
     }
-	_, err = fh.DB.Exec(sqlUpdateStatement, duinBody.Image, duinBody.Digest)
-	if err != nil {
+
+	sqlImageName := ""
+	row := fh.DB.QueryRow("SELECT ImageName FROM diun WHERE ImageName = ?", duinBody.Image)
+	switch err := row.Scan(&sqlImageName); err {
+	case sql.ErrNoRows:
+		_ ,err = fh.DB.Exec(sqlInsertStatement, duinBody.Image, duinBody.Digest)
+		if err != nil {
+			log.Println(err)
+		}
+	case nil:
+		_, err = fh.DB.Exec(sqlUpdateStatement, duinBody.Image, duinBody.Digest)
+		if err != nil {
+			log.Println(err)
+		}
+	default:
 		log.Println(err)
 	}
+	
     fmt.Fprintf(w, "Ok")
 }
 
@@ -732,12 +757,28 @@ func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
 	sqlQueryAllContainers := ""
 	if hostname != "" {
 		sqlQueryAllContainers = `
-		SELECT ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew FROM containers
-		WHERE Host = ?;`
+			SELECT containers.ID
+				, containers.Name
+				, containers.Host
+				, containers.Status
+				, containers.ImageName
+				, containers.ImageDigest
+				, diun.ImageDigest AS ImageDigestNew 
+			FROM containers
+			LEFT OUTER JOIN diun ON containers.ImageName = diun.ImageName
+			WHERE Host = ?;`
 	} else {
 		sqlQueryAllContainers = `
-		SELECT ID, Name, Host, Status, ImageName, ImageDigest, ImageDigestNew FROM containers ORDER BY Host;
-		`
+			SELECT containers.ID
+				, containers.Name
+				, containers.Host
+				, containers.Status
+				, containers.ImageName
+				, containers.ImageDigest
+				, diun.ImageDigest AS ImageDigestNew 
+			FROM containers 
+			LEFT OUTER JOIN diun ON containers.ImageName = diun.ImageName
+			ORDER BY Host;`
 	}
 
 	rows, err := db.Query(sqlQueryAllContainers, hostname)
@@ -751,7 +792,7 @@ func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
 		var id, name, host, status, imageName, imageDigest, imageDigestNew string
 		if err := rows.Scan(&id, &name, &host, &status, &imageName, &imageDigest, &imageDigestNew); err != nil {
 			return nil, err
-		}	
+		}
 		container := Container{
 			ID: id,
 			Host: host,

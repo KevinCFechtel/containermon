@@ -40,6 +40,8 @@
                 {{end}}
                 {{if eq .ImageDigest .ImageDigestNew}}
                 <td class="bg-success">{{.ImageName}}</td>
+                {{else if eq .ImageDigestNew ""}}
+                <td class="bg-warning">{{.ImageName}}</td>
                 {{else}}
                 <td class="bg-danger">{{.ImageName}}</td>
                 {{end}}
