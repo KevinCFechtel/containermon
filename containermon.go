@@ -791,9 +791,13 @@ func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
 
 	var containers []Container
 	for rows.Next() {
-		var id, name, host, status, imageName, imageDigest, imageDigestNew string
+		var id, name, host, status, imageName, imageDigest string
+		var imageDigestNew sql.NullString
 		if err := rows.Scan(&id, &name, &host, &status, &imageName, &imageDigest, &imageDigestNew); err != nil {
 			return nil, err
+		}
+		if !imageDigestNew.Valid {
+			imageDigestNew.String = ""
 		}
 		container := Container{
 			ID: id,
@@ -802,7 +806,7 @@ func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
 			Status: status,
 			ImageName: imageName,
 			ImageDigest: imageDigest,
-			ImageDigestNew: imageDigestNew,
+			ImageDigestNew: imageDigestNew.String,
 		}
 		containers = append(containers, container)
 	}
