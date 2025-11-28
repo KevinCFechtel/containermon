@@ -656,21 +656,23 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 					log.Println("error inserting/updating container from remote data: ", err)
 				}
 			}
-			localContainers, err := selectAllContainers(db, containers[0].Host)
-			for _, localContainer := range localContainers {
-				found := false
-				for _, remoteContainer := range containers {
-					if localContainer.ID == remoteContainer.ID {
-						found = true
+			if len(containers) != 0 {
+				localContainers, err := selectAllContainers(db, containers[0].Host)
+				for _, localContainer := range localContainers {
+					found := false
+					for _, remoteContainer := range containers {
+						if localContainer.ID == remoteContainer.ID {
+							found = true
+						}
 					}
-				}
-				if !found {
-					sqlDeleteStatement := `
-					DELETE FROM containers
-					WHERE ID = $1;`
-					_, err = db.Exec(sqlDeleteStatement, localContainer.ID)
-					if err != nil {
-						log.Println("error deleting container not in remote data: ", err)
+					if !found {
+						sqlDeleteStatement := `
+						DELETE FROM containers
+						WHERE ID = $1;`
+						_, err = db.Exec(sqlDeleteStatement, localContainer.ID)
+						if err != nil {
+							log.Println("error deleting container not in remote data: ", err)
+						}
 					}
 				}
 			}
