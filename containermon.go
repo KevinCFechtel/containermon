@@ -59,6 +59,8 @@ type DuinWebHookBody struct {
 type Handler struct {
     DB *sql.DB
 	DiunWebhookEnabled bool
+	AgentToken string
+	DiunWebhookToken string
 }
 
 type ContainerPageData struct {
@@ -67,12 +69,18 @@ type ContainerPageData struct {
     Containers 	[]ContainerWeb
 }
 
+type RemoteConfig struct {
+	HostAddress string
+	HostToken   string
+}
+
 
 func main() {
 	var socketPath string
 	var hostHealthcheckUrl string
 	var containerErrorUrl string
-	var remoteConfig string
+	var agentToken string
+	var diunWebhookToken string
 	var cronContainerHealthConfig string
 	var cronHostHealthConfig string
 	var cronRemoteConfig string
@@ -103,10 +111,28 @@ func main() {
 	if(cronHostHealthConfig == "") {
 		cronHostHealthConfig = os.Getenv("CRON_HOST_HEALTH_CONFIG")
 	}
-	flag.StringVar(&remoteConfig, "remoteConfig", "", "Remote configuration, seperated by commas")
-	if(remoteConfig == "") {
-		remoteConfig = os.Getenv("REMOTE_CONFIG")
+	flag.StringVar(&agentToken, "agentToken", "", "Token for agent authentication")
+	if(agentToken == "") {
+		agentToken = os.Getenv("AGENT_TOKEN")
 	}
+	flag.StringVar(&diunWebhookToken, "diunWebhookToken", "", "Token for agent authentication")
+	if(diunWebhookToken == "") {
+		diunWebhookToken = os.Getenv("DIUN_WEBHOOK_TOKEN")
+	}
+	remoteHostConfigs := []RemoteConfig{}
+	for _, e := range os.Environ() {
+		if i := strings.Index(e, "="); i >= 0 {
+			if strings.HasPrefix(e, "REMOTE_CONFIG_HOST_") {
+				configCoutnter := strings.TrimPrefix(e[:i], "REMOTE_CONFIG_HOST_")
+				remoteToken := os.Getenv("REMOTE_CONFIG_TOKEN_" + configCoutnter)
+				remoteHostConfigs = append(remoteHostConfigs, RemoteConfig{ 
+					HostAddress: e[i+1:],
+					HostToken: remoteToken,
+				})
+			}
+		}
+	}
+
 	flag.StringVar(&cronRemoteConfig, "cronRemoteConfig", "", "Cron scheduler configuration for Remote data fetch")
 	if(cronRemoteConfig == "") {
 		cronRemoteConfig = os.Getenv("CRON_REMOTE_CONFIG")
@@ -140,6 +166,7 @@ func main() {
 			enableDiunWebhook = false
 		}
 	}
+	os.Environ()
 
 	socket := ""
 	if strings.Contains(socketPath,"podman") {
@@ -298,7 +325,7 @@ func main() {
 						log.Println("Starting Cron for Remote Data Fetch")
 					}
 					
-					getAndStoreRemoteData(remoteConfig, db)
+					getAndStoreRemoteData(remoteHostConfigs, db)
 				},
 			),
 		)
@@ -319,7 +346,7 @@ func main() {
 	} else {
 		log.Println("No cron jobs configured, exiting")
 	}
-	Handler := &Handler{DB: db, DiunWebhookEnabled: enableDiunWebhook}
+	Handler := &Handler{DB: db, DiunWebhookEnabled: enableDiunWebhook, AgentToken: agentToken, DiunWebhookToken: diunWebhookToken}
 	http.HandleFunc("/", Handler.handleWebGui)
 	http.HandleFunc("/json", Handler.handleJsonExport)
 	if enableDiunWebhook {
@@ -629,18 +656,23 @@ func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl str
 	}
 }
 
-func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
-	urls := strings.Split(remoteConfig, ",")
-	for _, url := range urls {
+func getAndStoreRemoteData(remoteHostConfigs []RemoteConfig, db *sql.DB) {
+	for _, config := range remoteHostConfigs {
 		client := http.Client{
 			Timeout: time.Second * 2, // Timeout after 2 seconds
 		}
-		req, err := http.NewRequest(http.MethodGet, "http://" + url + "/json", nil)
+		if strings.HasPrefix(config.HostAddress, "http://") == false && strings.HasPrefix(config.HostAddress, "https://") == false {
+			config.HostAddress = "http://" + config.HostAddress
+		}
+
+		req, err := http.NewRequest(http.MethodGet, config.HostAddress + "/json", nil)
 		if err != nil {
 			log.Println(err)
 		}
 
-		req.Header.Set("User-Agent", "spacecount-tutorial")
+		if config.HostToken != "" {
+			req.Header.Set("Authorization", config.HostToken)
+		}
 
 		res, err := client.Do(req)
 		if err != nil {
@@ -733,6 +765,10 @@ func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Authorization") != fh.AgentToken {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Println("Failed to get Hostname: " + err.Error())
@@ -751,6 +787,10 @@ func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Authorization") != fh.DiunWebhookToken {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	sqlUpdateStatement := `
 			UPDATE diun
 			SET ImageDigest = $2
