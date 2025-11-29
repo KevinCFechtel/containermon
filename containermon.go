@@ -442,14 +442,19 @@ func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl str
 				imageDigest = img.Digest
 			}
 		}
+		containerStatus := ""
+		if ctrData.State.Health != nil {
+			containerStatus = ctrData.State.Health.Status
+		} else {
+			containerStatus = ctrData.State.Status
+		}
 		container := Container{
 			ID:        	ctrData.ID,
 			Name:      	ctrData.Name,
-			Status:    	ctrData.State.Status,
+			Status:    	containerStatus,
 			ImageName: 	ctrData.Config.Image,
 			ImageDigest: 	imageDigest,
 		}
-
 		sqlContainerID := ""
 		row := db.QueryRow("SELECT ID FROM containers WHERE ID = ?", container.ID)
 		switch err := row.Scan(&sqlContainerID); err {
