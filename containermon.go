@@ -888,14 +888,20 @@ func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
 
 func (fh *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var creds Credentials
+	bodyString, errBody := io.ReadAll(r.Body)
+	if errBody != nil {
+		log.Println(errBody)
+	}
+	defer r.Body.Close()
+	log.Println("Body: " + string(bodyString))
 	err := json.NewDecoder(r.Body).Decode(&creds)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
 	if fh.webUIPassword != creds.Password {
-		w.WriteHeader(http.StatusUnauthorized)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
