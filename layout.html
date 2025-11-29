@@ -6,24 +6,41 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
         integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
         crossorigin="anonymous"></script>
+    <style>
+        /* Popover groß genug für ganze Tabelle, nicht in der Zelle abgeschnitten */
+        .popover.custom-popover {
+            max-width: 900px;
+            /* Größe anpassen */
+            width: auto;
+            white-space: normal;
+        }
+
+        .popover.custom-popover .popover-body {
+            padding: .5rem;
+        }
+
+        /* Tabelle innerhalb des Popovers auf volle Breite */
+        .popover.custom-popover table {
+            width: 100%;
+            margin: 0;
+        }
+
+        .popover.custom-popover td {
+            word-break: break-word;
+        }
+    </style>
 </head>
 
 <body>
-    <h1>{{.PageTitle}}</h1>
-    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target=".collapseWidthExample"
-        aria-expanded="false" aria-controls="collapseWidthExample">
-        Show Digests
-    </button>
-    <div class="table-responsive">
-        <table class="table table-bordered">
+    <h1 class="ms-3 me-3 mt-3">{{.PageTitle}}</h1>
+    <div class="table-responsive ms-3 me-3 mt-3">
+        <table class="table table-bordered table-striped">
             <thead>
                 <tr>
                     <th scope="col">Container Name</th>
                     <th scope="col">Container Host</th>
                     <th scope="col">Container Status</th>
                     <th scope="col">Container Image Name</th>
-                    <th scope="col" class="collapse collapseWidthExample">Image Digest</th>
-                    <th scope="col" class="collapse collapseWidthExample">New Image Digest</th>
                 </tr>
             </thead>
 
@@ -32,26 +49,42 @@
                 <td>{{.Name}}</td>
                 <td>{{.Host}}</td>
                 {{if eq .Status "running"}}
-                <td class="bg-success">{{.Status}}</td>
+                <td><span class="badge text-bg-success">{{.Status}}</span></td>
                 {{else if eq .Status "healthy"}}
-                <td class="bg-success">{{.Status}}</td>
+                <td><span class="badge text-bg-success">{{.Status}}</span></td>
                 {{else}}
-                <td class="bg-danger">{{.Status}}</td>
+                <td><span class="badge text-bg-danger">{{.Status}}</span></td>
                 {{end}}
                 {{if eq .ImageDigest .ImageDigestNew}}
-                <td class="bg-success">{{.ImageName}}</td>
+                <td>
+                    <button type="button" class="btn btn-success btn-sm" data-bs-toggle="popover"
+                        data-bs-placement="bottom" data-bs-custom-class="custom-popover" data-bs-title="Digest Info"
+                        data-bs-content='<table class="table table-sm mb-0"><tbody><tr><td>Container:</td><td>{{.ImageDigest}}</td></tr><tr><td>Diun:</td><td>{{.ImageDigestNew}}</td></tr></tbody></table>'
+                        data-bs-html="true">
+                        {{.ImageName}}
+                    </button>
+                </td>
                 {{else if eq .ImageDigestNew ""}}
-                <td class="bg-warning">{{.ImageName}}</td>
+                <td><button type="button" class="btn btn-warning btn-sm" data-bs-toggle="popover"
+                        data-bs-placement="bottom" data-bs-custom-class="custom-popover" data-bs-title="Digest Info"
+                        data-bs-content='<table class="table table-sm mb-0"><tbody><tr><td>Container:</td><td>{{.ImageDigest}}</td></tr><tr><td>Diun:</td><td>{{.ImageDigestNew}}</td></tr></tbody></table>'
+                        data-bs-html="true">
+                        {{.ImageName}}
+                    </button></td>
                 {{else}}
-                <td class="bg-danger">{{.ImageName}}</td>
+                <td><button type="button" class="btn btn-danger btn-sm" data-bs-toggle="popover"
+                        data-bs-placement="bottom" data-bs-custom-class="custom-popover" data-bs-title="Digest Info"
+                        data-bs-content='<table class="table table-sm mb-0"><tbody><tr><td>Container:</td><td>{{.ImageDigest}}</td></tr><tr><td>Diun:</td><td>{{.ImageDigestNew}}</td></tr></tbody></table>'
+                        data-bs-html="true">
+                        {{.ImageName}}
+                    </button></td>
                 {{end}}
-                <td class="collapse collapseWidthExample">{{.ImageDigest}}</td>
-                <td class="collapse collapseWidthExample">{{.ImageDigestNew}}</td>
             </tr>
             {{end}}
         </table>
     </div>
-
+    </div>
+    </div>
 </body>
 
 </html>
