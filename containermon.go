@@ -81,12 +81,6 @@ type session struct {
 	expiry   time.Time
 }
 
-// Create a struct that models the structure of a user in the request body
-type Credentials struct {
-	Password string `json:"password"`
-	//Username string `json:"username"`
-}
-
 
 func main() {
 	var socketPath string
@@ -887,20 +881,15 @@ func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fh *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var creds Credentials
 	bodyString, errBody := io.ReadAll(r.Body)
 	if errBody != nil {
 		log.Println(errBody)
 	}
 	defer r.Body.Close()
-	log.Println("Body: " + string(bodyString))
-	err := json.NewDecoder(r.Body).Decode(&creds)
-	if err != nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
 
-	if fh.webUIPassword != creds.Password {
+	transmittedPassword := strings.TrimPrefix(string(bodyString), "password=")
+
+	if fh.webUIPassword != transmittedPassword {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
