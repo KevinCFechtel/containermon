@@ -377,7 +377,9 @@ func main() {
 	if enableDiunWebhook {
 		http.HandleFunc("/webhook", Handler.handleWebhookExport)
 	}
-	http.Handle("/login", http.FileServer(http.Dir("./login.html")))
+	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+    	http.ServeFile(w, r, "login.html")
+	})	
 	http.HandleFunc("/auth", Handler.handleLogin)
 	http.ListenAndServe(":80", nil) 
 }
