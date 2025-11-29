@@ -22,6 +22,7 @@ import (
 	docker_container "github.com/docker/docker/api/types/container"
 	docker_client "github.com/docker/docker/client"
 	"github.com/go-co-op/gocron/v2"
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
@@ -61,6 +62,8 @@ type Handler struct {
 	DiunWebhookEnabled bool
 	AgentToken string
 	DiunWebhookToken string
+	Sessions map[string]session
+	webUIPassword string
 }
 
 type ContainerPageData struct {
@@ -72,6 +75,16 @@ type ContainerPageData struct {
 type RemoteConfig struct {
 	HostAddress string
 	HostToken   string
+}
+
+type session struct {
+	expiry   time.Time
+}
+
+// Create a struct that models the structure of a user in the request body
+type Credentials struct {
+	Password string `json:"password"`
+	//Username string `json:"username"`
 }
 
 
@@ -88,6 +101,8 @@ func main() {
 	var messageOnStartup bool
 	var enableDiunWebhook bool
 	var dbPath string
+	var webUIPassword string
+	var sessions = map[string]session{}
 	greenBubble := "\U0001F7E2"
 	redBubble := "\U0001F534"
     
@@ -118,6 +133,10 @@ func main() {
 	flag.StringVar(&diunWebhookToken, "diunWebhookToken", "", "Token for agent authentication")
 	if(diunWebhookToken == "") {
 		diunWebhookToken = os.Getenv("DIUN_WEBHOOK_TOKEN")
+	}
+	flag.StringVar(&webUIPassword, "webUIPassword", "", "Password for Web UI access")
+	if(webUIPassword == "") {
+		webUIPassword = os.Getenv("WEBUI_PASSWORD")
 	}
 	remoteHostConfigs := []RemoteConfig{}
 	for _, e := range os.Environ() {
@@ -346,12 +365,20 @@ func main() {
 	} else {
 		log.Println("No cron jobs configured, exiting")
 	}
-	Handler := &Handler{DB: db, DiunWebhookEnabled: enableDiunWebhook, AgentToken: agentToken, DiunWebhookToken: diunWebhookToken}
+	Handler := &Handler{DB: db,
+		DiunWebhookEnabled: enableDiunWebhook, 
+		AgentToken: agentToken, 
+		DiunWebhookToken: diunWebhookToken, 
+		Sessions: sessions,
+		webUIPassword: webUIPassword,
+	}
 	http.HandleFunc("/", Handler.handleWebGui)
 	http.HandleFunc("/json", Handler.handleJsonExport)
 	if enableDiunWebhook {
 		http.HandleFunc("/webhook", Handler.handleWebhookExport)
 	}
+	http.Handle("/login", http.FileServer(http.Dir("./login.html")))
+	http.HandleFunc("/auth", Handler.handleLogin)
 	http.ListenAndServe(":80", nil) 
 }
 
@@ -738,6 +765,28 @@ func getAndStoreRemoteData(remoteHostConfigs []RemoteConfig, db *sql.DB) {
 }
 
 func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie("session_token")
+	if err != nil {
+		if err == http.ErrNoCookie {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	sessionToken := c.Value
+
+	userSession, exists := fh.Sessions[sessionToken]
+	if !exists {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if userSession.isExpired() {
+		delete(fh.Sessions, sessionToken)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
 	var webContainers []ContainerWeb
 	tmpl := template.Must(template.ParseFiles("layout.html"))
 	containers, err := selectAllContainers(fh.DB, "")
@@ -835,6 +884,34 @@ func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Ok")
 }
 
+func (fh *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var creds Credentials
+	err := json.NewDecoder(r.Body).Decode(&creds)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if fh.webUIPassword != creds.Password {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	sessionToken := uuid.NewString()
+	expiresAt := time.Now().Add(120 * time.Minute)
+
+	fh.Sessions[sessionToken] = session{
+		expiry:   expiresAt,
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:    "session_token",
+		Value:   sessionToken,
+		Expires: expiresAt,
+	})
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
 	sqlQueryAllContainers := ""
 	if hostname != "" {
@@ -895,4 +972,9 @@ func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
 	}
 
 	return containers, nil
+}
+
+// we'll use this method later to determine if the session has expired
+func (s session) isExpired() bool {
+	return s.expiry.Before(time.Now())
 }
