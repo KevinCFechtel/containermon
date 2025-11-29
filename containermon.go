@@ -766,28 +766,29 @@ func getAndStoreRemoteData(remoteHostConfigs []RemoteConfig, db *sql.DB) {
 }
 
 func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie("session_token")
-	if err != nil {
-		if err == http.ErrNoCookie {
+	if fh.webUIPassword != "" {
+		c, err := r.Cookie("session_token")
+		if err != nil {
+			if err == http.ErrNoCookie {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-	sessionToken := c.Value
+		sessionToken := c.Value
 
-	userSession, exists := fh.Sessions[sessionToken]
-	if !exists {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
+		userSession, exists := fh.Sessions[sessionToken]
+		if !exists {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		if userSession.isExpired() {
+			delete(fh.Sessions, sessionToken)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
 	}
-	if userSession.isExpired() {
-		delete(fh.Sessions, sessionToken)
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-
 	var webContainers []ContainerWeb
 	tmpl := template.Must(template.ParseFiles("layout.html"))
 	containers, err := selectAllContainers(fh.DB, "")
@@ -817,9 +818,11 @@ func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Authorization") != fh.AgentToken {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
+	if fh.AgentToken != "" {
+		if r.Header.Get("Authorization") != fh.AgentToken {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -839,9 +842,11 @@ func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Authorization") != fh.DiunWebhookToken {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
+	if fh.DiunWebhookToken != "" {
+		if r.Header.Get("Authorization") != fh.DiunWebhookToken {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 	sqlUpdateStatement := `
 			UPDATE diun
