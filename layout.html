@@ -40,7 +40,9 @@
                     <th scope="col">Container Name</th>
                     <th scope="col">Container Host</th>
                     <th scope="col">Container Status</th>
+                    {{if .DiunWebhookEnabled}}
                     <th scope="col">Container Image Name</th>
+                    {{end}}
                 </tr>
             </thead>
 
@@ -55,6 +57,7 @@
                 {{else}}
                 <td><span class="badge text-bg-danger">{{.Status}}</span></td>
                 {{end}}
+                {{if .EnableDiunWebhook}}
                 {{if eq .ImageDigest .ImageDigestNew}}
                 <td>
                     <button type="button" class="btn btn-success btn-sm" data-bs-toggle="popover"
@@ -79,12 +82,24 @@
                         {{.ImageName}}
                     </button></td>
                 {{end}}
+                {{end}}
             </tr>
             {{end}}
         </table>
     </div>
-    </div>
-    </div>
+    <!-- Popover-Initialisierung -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
+            popoverTriggerList.map(function (popoverTriggerEl) {
+                return new bootstrap.Popover(popoverTriggerEl, {
+                    html: true,
+                    sanitize: false,
+                    container: 'body' // verhindert Abschneiden durch Eltern-Container
+                });
+            });
+        });
+    </script>
 </body>
 
 </html>

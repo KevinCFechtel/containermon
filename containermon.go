@@ -35,6 +35,17 @@ type Container struct {
 	ImageDigestNew 	string
 }
 
+type ContainerWeb struct {
+    ID 				string
+	Host 			string
+    Name     		string
+	Status 			string
+	ImageName 		string
+	ImageDigest 	string
+	ImageDigestNew 	string
+	EnableDiunWebhook bool
+}
+
 type DuinWebHookBody struct {
     Hostname 	string
 	Status 		string
@@ -47,11 +58,13 @@ type DuinWebHookBody struct {
 
 type Handler struct {
     DB *sql.DB
+	DiunWebhookEnabled bool
 }
 
 type ContainerPageData struct {
     PageTitle 	string
-    Containers 	[]Container
+	DiunWebhookEnabled bool
+    Containers 	[]ContainerWeb
 }
 
 
@@ -65,6 +78,7 @@ func main() {
 	var cronRemoteConfig string
 	var enableDebugging bool
 	var messageOnStartup bool
+	var enableDiunWebhook bool
 	var dbPath string
 	greenBubble := "\U0001F7E2"
 	redBubble := "\U0001F534"
@@ -117,6 +131,14 @@ func main() {
 	flag.StringVar(&dbPath, "dbPath", "", "Path to Sqlite DB file")
 	if(dbPath == "") {
 		dbPath = os.Getenv("DB_PATH")
+	}
+	flag.BoolVar(&enableDiunWebhook, "enableDiunWebhook", false, "Enable debug logging")
+	if os.Getenv("ENABLE_DIUN_WEBHOOK") != "" {
+		if os.Getenv("ENABLE_DIUN_WEBHOOK") == "true" {
+			enableDiunWebhook = true
+		} else {
+			enableDiunWebhook = false
+		}
 	}
 
 	socket := ""
@@ -297,10 +319,12 @@ func main() {
 	} else {
 		log.Println("No cron jobs configured, exiting")
 	}
-	Handler := &Handler{DB: db}
+	Handler := &Handler{DB: db, DiunWebhookEnabled: enableDiunWebhook}
 	http.HandleFunc("/", Handler.handleWebGui)
 	http.HandleFunc("/json", Handler.handleJsonExport)
-	http.HandleFunc("/webhook", Handler.handleWebhookExport)
+	if enableDiunWebhook {
+		http.HandleFunc("/webhook", Handler.handleWebhookExport)
+	}
 	http.ListenAndServe(":80", nil) 
 }
 
@@ -680,15 +704,30 @@ func getAndStoreRemoteData(remoteConfig string, db *sql.DB) {
 }
 
 func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
+	var webContainers []ContainerWeb
 	tmpl := template.Must(template.ParseFiles("layout.html"))
 	containers, err := selectAllContainers(fh.DB, "")
 	if err != nil {
 		log.Println("error selecting containers: ", err)
 	}
+	for _, container := range containers {
+		webContainer := ContainerWeb{
+			ID: container.ID,
+			Host: container.Host,
+			Name: container.Name,
+			Status: container.Status,
+			ImageName: container.ImageName,
+			ImageDigest: container.ImageDigest,
+			ImageDigestNew: container.ImageDigestNew,
+			EnableDiunWebhook: fh.DiunWebhookEnabled,
+		}
+		webContainers = append(webContainers, webContainer)
+	}
 
 	data := ContainerPageData{
 		PageTitle: "ContainerMon - Monitored Containers",
-		Containers: containers,
+		DiunWebhookEnabled: fh.DiunWebhookEnabled,
+		Containers: webContainers,
 	}
     tmpl.Execute(w, data)
 }
