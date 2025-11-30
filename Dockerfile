@@ -14,7 +14,7 @@ ENV CONTAINER_ERROR_URL=''
 ENV DEBUG_LOGGING='false'
 ENV CRON_CONTAINER_HEALTH_CONFIG=''
 ENV CRON_HOST_HEALTH_CONFIG=''
-RUN apk --no-cache add ca-certificates gpgme
+RUN apk --no-cache add ca-certificates gpgme curl
 COPY --from=builder /go/bin/app /app
 COPY --from=builder /go/src/app/layout.html /layout.html
 COPY --from=builder /go/src/app/login.html /login.html
