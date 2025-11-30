@@ -375,6 +375,10 @@ func main() {
     	http.ServeFile(w, r, "login.html")
 	})	
 	http.HandleFunc("/auth", Handler.handleLogin)
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+    	rss := "OK"
+		io.WriteString(w, rss)
+	})	
 	http.ListenAndServe(":80", nil) 
 }
 
