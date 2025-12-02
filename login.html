@@ -8,16 +8,10 @@
         integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous">
         </script>
     <style>
-        body {
-            background-color: #f8f9fa;
-        }
-
         .login-container {
             max-width: 400px;
             margin: 100px auto;
             padding: 20px;
-            background-color: #ffffff;
-            border: 1px solid #dee2e6;
             border-radius: 5px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
         }
@@ -30,14 +24,14 @@
 </head>
 
 <body>
-    <div class="container-sm">
+    <div class="login-container">
         <h2>Containermon Login</h2>
         <form method="POST" action="/auth">
             <div class="mb-3">
                 <label for="password" class="form-label">Password</label>
                 <input type="password" class="form-control" id="password" name="password" required>
             </div>
-            <button type="submit" class="btn btn-primary">Login</button>
+            <button type="submit" class="btn btn-primary w-100">Login</button>
         </form>
     </div>
     <script>

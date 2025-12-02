@@ -953,7 +953,6 @@ func (fh *Handler) handleManualUpdate(w http.ResponseWriter, r *http.Request) {
 
 	duinBody.Image = r.FormValue("imageName")
 	duinBody.Digest = r.FormValue("imageDigest")
-	log.Println("Image " + duinBody.Image + " updated to digest " + duinBody.Digest)
 
 	sqlImageName := ""
 	row := fh.DB.QueryRow("SELECT ImageName FROM diun WHERE ImageName = ?", duinBody.Image)
