@@ -950,12 +950,10 @@ func (fh *Handler) handleManualUpdate(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO diun (ImageName, ImageDigest)
 		VALUES ($1, $2)`
 	duinBody := DuinWebHookBody{}
-	if r.Body != nil {
-		defer r.Body.Close()
-	}
 
 	duinBody.Image = r.FormValue("imageName")
 	duinBody.Digest = r.FormValue("imageDigest")
+	log.Println("Image " + duinBody.Image + " updated to digest " + duinBody.Digest)
 
 	sqlImageName := ""
 	row := fh.DB.QueryRow("SELECT ImageName FROM diun WHERE ImageName = ?", duinBody.Image)
