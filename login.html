@@ -40,6 +40,15 @@
             <button type="submit" class="btn btn-primary w-100">Login</button>
         </form>
     </div>
+    <script>
+        window.addEventListener('DOMContentLoaded', (event) => {
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+            if (prefersDark) {
+                document.documentElement.setAttribute("data-bs-theme", "dark");
+            }
+        });
+    </script>
 </body>
 
 </html>

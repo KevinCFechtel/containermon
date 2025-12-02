@@ -42,6 +42,7 @@
                     <th scope="col">Container Status</th>
                     {{if .DiunWebhookEnabled}}
                     <th scope="col">Container Image Name</th>
+                    <th scope="col">Mark as Updated</th>
                     {{end}}
                 </tr>
             </thead>
@@ -82,6 +83,13 @@
                         {{.ImageName}}
                     </button></td>
                 {{end}}
+                <td>
+                    <form method="POST" action="/manualUpdate">
+                        <input type="hidden" name="imageName" value="{{.ImageDigest}}">
+                        <input type="hidden" name="imageDigest" value="{{.ImageDigest}}">
+                        <input type="submit" value="Mark as Updated">
+                    </form>
+                </td>
                 {{end}}
             </tr>
             {{end}}
@@ -98,6 +106,13 @@
                     container: 'body' // verhindert Abschneiden durch Eltern-Container
                 });
             });
+        });
+        window.addEventListener('DOMContentLoaded', (event) => {
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+            if (prefersDark) {
+                document.documentElement.setAttribute("data-bs-theme", "dark");
+            }
         });
     </script>
 </body>

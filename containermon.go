@@ -370,6 +370,7 @@ func main() {
 	http.HandleFunc("/json", Handler.handleJsonExport)
 	if enableDiunWebhook {
 		http.HandleFunc("/webhook", Handler.handleWebhookExport)
+		http.HandleFunc("/manualUpdate", Handler.handleManualUpdate)
 	}
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
     	http.ServeFile(w, r, "login.html")
@@ -895,13 +896,7 @@ func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fh *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
-	bodyString, errBody := io.ReadAll(r.Body)
-	if errBody != nil {
-		log.Println(errBody)
-	}
-	defer r.Body.Close()
-
-	transmittedPassword := strings.TrimPrefix(string(bodyString), "password=")
+	transmittedPassword := r.FormValue("password")
 
 	if fh.webUIPassword != transmittedPassword {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -921,6 +916,65 @@ func (fh *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Expires: expiresAt,
 	})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (fh *Handler) handleManualUpdate(w http.ResponseWriter, r *http.Request) {
+	if fh.webUIPassword != "" {
+		c, err := r.Cookie("session_token")
+		if err != nil {
+			if err == http.ErrNoCookie {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		sessionToken := c.Value
+
+		userSession, exists := fh.Sessions[sessionToken]
+		if !exists {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		if userSession.isExpired() {
+			delete(fh.Sessions, sessionToken)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+	}
+	sqlUpdateStatement := `
+			UPDATE diun
+			SET ImageDigest = $2
+			WHERE ImageName = $1;`
+	sqlInsertStatement := `
+		INSERT INTO diun (ImageName, ImageDigest)
+		VALUES ($1, $2)`
+	duinBody := DuinWebHookBody{}
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
+
+	duinBody.Image = r.FormValue("imageName")
+	duinBody.Digest = r.FormValue("imageDigest")
+
+	sqlImageName := ""
+	row := fh.DB.QueryRow("SELECT ImageName FROM diun WHERE ImageName = ?", duinBody.Image)
+	switch err := row.Scan(&sqlImageName); err {
+	case sql.ErrNoRows:
+		_ ,err = fh.DB.Exec(sqlInsertStatement, duinBody.Image, duinBody.Digest)
+		if err != nil {
+			log.Println(err)
+		}
+	case nil:
+		_, err = fh.DB.Exec(sqlUpdateStatement, duinBody.Image, duinBody.Digest)
+		if err != nil {
+			log.Println(err)
+		}
+	default:
+		log.Println(err)
+	}
+	
+    http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
