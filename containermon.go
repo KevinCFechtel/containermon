@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +65,7 @@ type Handler struct {
 	DiunWebhookToken string
 	Sessions map[string]session
 	webUIPassword string
+	webSessionExpirationTime int
 }
 
 type ContainerPageData struct {
@@ -97,6 +99,7 @@ func main() {
 	var dbPath string
 	var webUIPassword string
 	var sessions = map[string]session{}
+	var webSessionExpirationTime int
 	greenBubble := "\U0001F7E2"
 	redBubble := "\U0001F534"
     
@@ -179,7 +182,16 @@ func main() {
 			enableDiunWebhook = false
 		}
 	}
-	os.Environ()
+	flag.IntVar(&webSessionExpirationTime, "webSessionExpirationTime", -1, "Web UI session expiration time in minutes")
+	if(webSessionExpirationTime == -1) {
+		webSessionExpirationTimeEnvar, err := strconv.Atoi(os.Getenv("WEB_SESSION_EXPIRATION_TIME"))
+		if err != nil {
+			webSessionExpirationTime = 120
+		} else {
+			webSessionExpirationTime = webSessionExpirationTimeEnvar
+		}
+
+	}
 
 	socket := ""
 	if strings.Contains(socketPath,"podman") {
@@ -365,6 +377,7 @@ func main() {
 		DiunWebhookToken: diunWebhookToken, 
 		Sessions: sessions,
 		webUIPassword: webUIPassword,
+		webSessionExpirationTime: webSessionExpirationTime,
 	}
 	http.HandleFunc("/", Handler.handleWebGui)
 	http.HandleFunc("/json", Handler.handleJsonExport)
@@ -904,7 +917,7 @@ func (fh *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionToken := uuid.NewString()
-	expiresAt := time.Now().Add(120 * time.Minute)
+	expiresAt := time.Now().Add(time.Duration(fh.webSessionExpirationTime) * time.Minute)
 
 	fh.Sessions[sessionToken] = session{
 		expiry:   expiresAt,
