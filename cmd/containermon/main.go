@@ -136,9 +136,14 @@ func main() {
 	} else {
 		socket = "unix://" + socketPath
 	}
+
+ hostname, err := os.Hostname()
+ if err != nil {
+  log.Println("Failed to get Hostname: " + err.Error())
+ }
 	DBHandler := Databasehandler.NewHandler(dbPath)
-	Podmanhandler := Podmanhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, "", redBubble, greenBubble)
-	Dockerhandler := Dockerhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, "", redBubble, greenBubble)
+	Podmanhandler := Podmanhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, hostname, redBubble, greenBubble)
+	Dockerhandler := Dockerhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, hostname, redBubble, greenBubble)
 	Webhandler := Webhandler.NewWebHandler(DBHandler, enableDiunWebhook, agentToken, diunWebhookToken, webUIPassword, webSessionExpirationTime)
 	Remotehandler := Remotehandler.NewHandler(DBHandler)
 
