@@ -157,11 +157,6 @@ func main() {
 		log.Printf("Message on Startup %s\n", messageOnStartup)
 	}
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Println("Failed to get Hostname: " + err.Error())
-	}
-
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		log.Println("Failed to start scheduler: " + err.Error())
