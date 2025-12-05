@@ -26,7 +26,7 @@ func NewHandler(dbPath string) *Handler {
 	if err != nil {
 		log.Println("error creating containers table: ", err)
 	}
-	defer newDB.Close()
+	//defer newDB.Close()
 
 	sqlCreateTable = `
 	CREATE TABLE IF NOT EXISTS diun (
