@@ -1,4 +1,4 @@
-module containermon
+module github.com/KevinCFechtel/containermon
 
 go 1.25.1
 

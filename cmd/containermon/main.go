@@ -1,10 +1,7 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -13,23 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"database/sql"
-
-	podman_binding "github.com/containers/podman/v5/pkg/bindings"
-	podman_containers "github.com/containers/podman/v5/pkg/bindings/containers"
-	podman_images "github.com/containers/podman/v5/pkg/bindings/images"
 	"github.com/containrrr/shoutrrr"
-	docker_container "github.com/docker/docker/api/types/container"
-	docker_client "github.com/docker/docker/client"
+
 	"github.com/go-co-op/gocron/v2"
-	_ "modernc.org/sqlite"
+
+	Dockerhandler "github.com/KevinCFechtel/containermon/handler/container/docker"
+	Podmanhandler "github.com/KevinCFechtel/containermon/handler/container/podman"
+	Databasehandler "github.com/KevinCFechtel/containermon/handler/database"
+	Remotehandler "github.com/KevinCFechtel/containermon/handler/remotes"
+	Webhandler "github.com/KevinCFechtel/containermon/handler/web"
+	Remotemodels "github.com/KevinCFechtel/containermon/models/remotes"
 )
-
-
-type RemoteConfig struct {
-	HostAddress string
-	HostToken   string
-}
 
 func main() {
 	var socketPath string
@@ -45,7 +36,6 @@ func main() {
 	var enableDiunWebhook bool
 	var dbPath string
 	var webUIPassword string
-	var sessions = map[string]session{}
 	var webSessionExpirationTime int
 	greenBubble := "\U0001F7E2"
 	redBubble := "\U0001F534"
@@ -82,13 +72,13 @@ func main() {
 	if(webUIPassword == "") {
 		webUIPassword = os.Getenv("WEBUI_PASSWORD")
 	}
-	remoteHostConfigs := []RemoteConfig{}
+	remoteHostConfigs := []Remotemodels.RemoteConfig{}
 	for _, e := range os.Environ() {
 		if i := strings.Index(e, "="); i >= 0 {
 			if strings.HasPrefix(e, "REMOTE_CONFIG_HOST_") {
 				configCoutnter := strings.TrimPrefix(e[:i], "REMOTE_CONFIG_HOST_")
 				remoteToken := os.Getenv("REMOTE_CONFIG_TOKEN_" + configCoutnter)
-				remoteHostConfigs = append(remoteHostConfigs, RemoteConfig{ 
+				remoteHostConfigs = append(remoteHostConfigs, Remotemodels.RemoteConfig{ 
 					HostAddress: e[i+1:],
 					HostToken: remoteToken,
 				})
@@ -146,33 +136,11 @@ func main() {
 	} else {
 		socket = "unix://" + socketPath
 	}
-
-	cache := make(map[string]int)
-
-	db, _ := sql.Open("sqlite", "file:"+dbPath)
-	sqlCreateTable := `
-	CREATE TABLE IF NOT EXISTS containers (
-		ID TEXT PRIMARY KEY,
-		Host TEST,
-		Name TEXT,
-		Status TEXT,
-		ImageName TEXT,
-		ImageDigest TEXT
-	);`
-	_, err := db.Exec(sqlCreateTable)
-	if err != nil {
-		log.Println("error creating containers table: ", err)
-	}
-	defer db.Close()
-	sqlCreateTable = `
-	CREATE TABLE IF NOT EXISTS diun (
-		ImageName TEXT PRIMARY KEY,
-		ImageDigest TEXT
-	);`
-	_, err = db.Exec(sqlCreateTable)
-	if err != nil {
-		log.Println("error creating containers table: ", err)
-	}
+	DBHandler := Databasehandler.NewHandler(dbPath)
+	Podmanhandler := Podmanhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, "", redBubble, greenBubble)
+	Dockerhandler := Dockerhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, "", redBubble, greenBubble)
+	Webhandler := Webhandler.NewWebHandler(DBHandler, enableDiunWebhook, agentToken, diunWebhookToken, webUIPassword, webSessionExpirationTime)
+	Remotehandler := Remotehandler.NewHandler(DBHandler)
 
 	if enableDebugging {
 		log.Println("Debugging enabled")
@@ -212,22 +180,17 @@ func main() {
 					if enableDebugging {
 						log.Println("Starting Cron for Container Health Check")
 					}
-					
-					// HTTP client with timeout
-					client := &http.Client{
-						Timeout: 10 * time.Second,
-					}
 
 					if strings.Contains(socketPath,"podman") {
 						if enableDebugging {
 							log.Println("Using Podman health check")
 						}
-						podmanHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache, hostname, redBubble, greenBubble, db)
+						Podmanhandler.PodmanHealthCheck()
 					} else {
 						if enableDebugging {
 							log.Println("Using Docker health check")
 						}
-						dockerHealthCheck(client, socket, containerErrorUrl, enableDebugging, cache, hostname, redBubble, greenBubble)
+						Dockerhandler.DockerHealthCheck()
 					}
 				},
 			),
@@ -270,7 +233,6 @@ func main() {
 					if resp.StatusCode != 200 {
 						log.Println("Failed to send success log, response code: " + resp.Status)
 					}
-
 				},
 			),
 		)
@@ -296,8 +258,7 @@ func main() {
 					if enableDebugging {
 						log.Println("Starting Cron for Remote Data Fetch")
 					}
-					
-					getAndStoreRemoteData(remoteHostConfigs, db)
+					Remotehandler.GetAndStoreRemoteData(remoteHostConfigs)
 				},
 			),
 		)
@@ -318,477 +279,21 @@ func main() {
 	} else {
 		log.Println("No cron jobs configured, exiting")
 	}
-	Handler := &Handler{DB: db,
-		DiunWebhookEnabled: enableDiunWebhook, 
-		AgentToken: agentToken, 
-		DiunWebhookToken: diunWebhookToken, 
-		Sessions: sessions,
-		webUIPassword: webUIPassword,
-		webSessionExpirationTime: webSessionExpirationTime,
-	}
-	http.HandleFunc("/", Handler.handleWebGui)
-	http.HandleFunc("/json", Handler.handleJsonExport)
+
+
+	http.HandleFunc("/", Webhandler.HandleWebGui)
+	http.HandleFunc("/json", Webhandler.HandleJsonExport)
 	if enableDiunWebhook {
-		http.HandleFunc("/webhook", Handler.handleWebhookExport)
-		http.HandleFunc("/manualUpdate", Handler.handleManualUpdate)
+		http.HandleFunc("/webhook", Webhandler.HandleWebhookExport)
+		http.HandleFunc("/manualUpdate", Webhandler.HandleManualUpdate)
 	}
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
     	http.ServeFile(w, r, "login.html")
 	})	
-	http.HandleFunc("/auth", Handler.handleLogin)
+	http.HandleFunc("/auth", Webhandler.HandleLogin)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
     	rss := "OK"
 		io.WriteString(w, rss)
 	})	
 	http.ListenAndServe(":80", nil) 
 }
-
-func podmanHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string, db *sql.DB) {
-	sqlInsertStatement := `
-		INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id`
-
-	sqlUpdateStatement := `
-			UPDATE containers
-			SET Name = $2, Host = $3, Status = $4, ImageName = $5, ImageDigest = $6
-			WHERE id = $1;`
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Println("Failed to get Hostname: " + err.Error())
-	}
-	// Connect to Podman socket
-	connText, err := podman_binding.NewConnection(context.Background(), socket)
-	if err != nil {
-			log.Println(err)
-			os.Exit(1)
-	}
-	if enableDebugging {
-		log.Println("Socket connected")
-	}
-	// Container list
-	options := podman_containers.ListOptions{
-	}
-	options.WithAll(true)
-	containerLatestList, err := podman_containers.List(connText, &options)
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-	if enableDebugging {
-		log.Println("Container list retrieved, total containers: " + fmt.Sprint(len(containerLatestList)))
-	}
-
-	// Image list
-	image_options := podman_images.ListOptions{
-	}
-	imageList, err := podman_images.List(connText, &image_options)
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-	// Process each container
-	for _, r := range containerLatestList {
-		// Inspect each container
-		ctrData, err := podman_containers.Inspect(connText, r.ID, nil)
-		if err != nil {
-			log.Println(err)
-			os.Exit(1)
-		}
-		if enableDebugging {
-			log.Println("Inspection read for container: " + ctrData.Name)
-		}
-		imageDigest := ""
-		for _, img := range imageList {
-			if img.ID == ctrData.Image {
-				if enableDebugging {
-					log.Println("Image found for container " + ctrData.Name + ": " + img.RepoTags[0])
-				}
-				imageDigest = img.Digest
-			}
-		}
-		containerStatus := ""
-		if ctrData.State.Health != nil {
-			containerStatus = ctrData.State.Health.Status
-		} else {
-			containerStatus = ctrData.State.Status
-		}
-		container := Container{
-			ID:        	ctrData.ID,
-			Name:      	ctrData.Name,
-			Status:    	containerStatus,
-			ImageName: 	ctrData.Config.Image,
-			ImageDigest: 	imageDigest,
-		}
-		sqlContainerID := ""
-		row := db.QueryRow("SELECT ID FROM containers WHERE ID = ?", container.ID)
-		switch err := row.Scan(&sqlContainerID); err {
-		case sql.ErrNoRows:
-			_, err = db.Exec(sqlInsertStatement, container.ID, container.Name, hostname, container.Status, container.ImageName, container.ImageDigest, container.ImageDigest)
-			if err != nil {
-				log.Println(err)
-			}
-		case nil:
-			_, err = db.Exec(sqlUpdateStatement, container.ID, container.Name, hostname, container.Status, container.ImageName, container.ImageDigest)
-			if err != nil {
-				log.Println(err)
-			}
-		default:
-			log.Println(err)
-		}
-
-		// Check for skip label
-		inspectContainer := true
-
-		for key, value := range ctrData.Config.Labels {
-			if key == "containermon.skip" && value == "true" {
-				inspectContainer = false
-			}
-		}
-		if enableDebugging {
-			log.Println("Container " + ctrData.Name + " inspect enabled: " + fmt.Sprint(inspectContainer))
-		}
-
-		if inspectContainer {
-			skipHealthCheck := true
-			if(ctrData.State.Health != nil) {
-				skipHealthCheck = false
-				healthstatus := ctrData.State.Health.Status
-				if healthstatus != "" {
-					if enableDebugging {
-						log.Println("Health status for container " + ctrData.Name + ": " + healthstatus)
-					}
-					if healthstatus != "healthy" && healthstatus != "starting" {
-						found := cache[ctrData.ID]
-						if found == 0 {
-							// Report unhealthy container via healthcheck URL
-							if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "<b>ERROR:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has the health status: <b>" + healthstatus + "</b> " + redBubble)
-								if err != nil {
-									log.Println("Failed to send error log: " + err.Error())
-								}
-							}
-							cache[ctrData.ID] = 1
-						}
-					} else {
-						found := cache[ctrData.ID]
-						if found != 0 {
-							// Report unhealthy container via healthcheck URL
-							if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "<b>RECOVERED:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has recovered the health status: <b>" + healthstatus + "</b> " + greenBubble)
-								if err != nil {
-									log.Println("Failed to send error log: " + err.Error())
-								}
-							}
-							delete(cache,ctrData.ID)
-						}
-					}
-				}
-			} 
-			if(skipHealthCheck) {
-				containerStatus := ctrData.State.Status
-				if enableDebugging {
-					log.Println("Container status for container " + ctrData.Name + ": " + containerStatus)
-				}
-				if containerStatus != "running" {
-					found := cache[ctrData.ID]
-					if found == 0 {
-						// Report unhealthy container via healthcheck URL
-						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "<b>ERROR:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has the container status: <b>" + containerStatus + "</b> " + redBubble)
-							if err != nil {
-								log.Println("Failed to send error log: " + err.Error())
-							}
-						}
-						cache[ctrData.ID] = 1
-					}
-				} else {
-					found := cache[ctrData.ID]
-					if found != 0 {
-						// Report unhealthy container via healthcheck URL
-						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "<b>RECOVERED:</b> Container: <b>" + ctrData.Name  + "</b> on Host <b>" + hostname + "</b> has recovered with status: <b>" + containerStatus + "</b> " + greenBubble)
-							if err != nil {
-								log.Println("Failed to send error log: " + err.Error())
-							}
-						}
-						delete(cache, ctrData.ID)
-					}
-				}
-			}
-		}
-	}
-	localContainers, err := selectAllContainers(db, hostname)
-	for _, localContainer := range localContainers {
-		found := false
-		for _, latestContainer := range containerLatestList {
-			if localContainer.ID == latestContainer.ID {
-				found = true
-			}
-		}
-		if !found {
-			sqlDeleteStatement := `
-			DELETE FROM containers
-			WHERE ID = $1;`
-			_, err = db.Exec(sqlDeleteStatement, localContainer.ID)
-			if err != nil {
-				log.Println("error deleting container not in remote data: ", err)
-			}
-		}
-	}
-}
-
-func dockerHealthCheck(client *http.Client, socket string, containerErrorUrl string, enableDebugging bool, cache map[string]int, hostname string, redBubble string, greenBubble string) {
-	// Connect to Docker socket
-	dockerClient, err := docker_client.NewClientWithOpts(
-		docker_client.WithHost(socket),
-		docker_client.WithAPIVersionNegotiation(),
-	)
-	if err != nil {
-		log.Println("Failed to connect to Docker socket: " + err.Error())
-		os.Exit(1)
-	}
-	if enableDebugging {
-		log.Println("Socket connected")
-	}
-	// Container list
-	containerList, err := dockerClient.ContainerList(context.Background(), docker_container.ListOptions{All: true})
-	if err != nil {
-		log.Println("Failed to retrieve container list: " + err.Error())
-		os.Exit(1)
-	}
-	if enableDebugging {
-		log.Println("Container list retrieved, total containers: " + fmt.Sprint(len(containerList)))
-	}
-
-	// Process each container
-	for _, r := range containerList {
-		// Inspect each container
-		ctrData, err := dockerClient.ContainerInspect(context.Background(), r.ID)
-		if err != nil {
-			log.Println("Failed to inspect container " + r.ID + ": " + err.Error())
-			os.Exit(1)
-		}
-		if enableDebugging {
-			log.Println("Inspection read for container: " + ctrData.Name)
-		}
-		// Check for skip label
-		inspectContainer := true
-
-		for key, value := range ctrData.Config.Labels {
-			if key == "containermon.skip" && value == "true" {
-				inspectContainer = false
-			}
-		}
-		if enableDebugging {
-			log.Println("Container " + ctrData.Name + " inspect enabled: " + fmt.Sprint(inspectContainer))
-		}
-
-		if inspectContainer {
-			if(ctrData.State.Health != nil) {
-				healthstatus := ctrData.State.Health.Status
-				if enableDebugging {
-					log.Println("Health status for container " + ctrData.Name + ": " + healthstatus)
-				}
-				if healthstatus != "healthy" && healthstatus != "starting" {
-					found := cache[ctrData.ID]
-					if found == 0 {
-						// Report unhealthy container via healthcheck URL
-						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "<b>ERROR:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has the health status: <b>" + healthstatus + "</b> " + redBubble)
-							if err != nil {
-								log.Println("Failed to send error log: " + err.Error())
-							}
-						}
-						cache[ctrData.ID] = 1
-					}
-				} else {
-					found := cache[ctrData.ID]
-					if found != 0 {
-						// Report unhealthy container via healthcheck URL
-						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "<b>RECOVERED:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has recovered the health status: <b>" + healthstatus + "</b> " + greenBubble)
-							if err != nil {
-								log.Println("Failed to send error log: " + err.Error())
-							}
-						}
-						delete(cache, ctrData.ID)
-					}
-				}
-			} else {
-				containerStatus := ctrData.State.Status
-				if enableDebugging {
-					log.Println("Container status for container " + ctrData.Name + ": " + containerStatus)
-				}
-				if containerStatus != "running" {
-					found := cache[ctrData.ID]
-					if found == 0 {
-						// Report unhealthy container via healthcheck URL
-						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "<b>ERROR:</b> Container: <b>" + ctrData.Name + "</b> on Host <b>" + hostname + "</b> has the container status: <b>" + containerStatus + "</b> " + redBubble)
-							if err != nil {
-								log.Println("Failed to send error log: " + err.Error())
-							}
-						}
-						cache[ctrData.ID] = 1
-					}
-				} else {
-					found := cache[ctrData.ID]
-					if found != 0 {
-						if containerErrorUrl != "" {
-							err := shoutrrr.Send(containerErrorUrl, "<b>RECOVERED:</b> Container: <b>" + ctrData.Name  + "</b> on Host <b>" + hostname + "</b> has recovered with status: <b>" + containerStatus + "</b> " + greenBubble)
-							if err != nil {
-								log.Println("Failed to send error log: " + err.Error())
-							}
-						}
-						delete(cache, ctrData.ID)
-					}
-				}
-			}
-		}
-	}
-}
-
-func getAndStoreRemoteData(remoteHostConfigs []RemoteConfig, db *sql.DB) {
-	for _, config := range remoteHostConfigs {
-		client := http.Client{
-			Timeout: time.Second * 2, // Timeout after 2 seconds
-		}
-		if strings.HasPrefix(config.HostAddress, "http://") == false && strings.HasPrefix(config.HostAddress, "https://") == false {
-			config.HostAddress = "http://" + config.HostAddress
-		}
-
-		req, err := http.NewRequest(http.MethodGet, config.HostAddress + "/json", nil)
-		if err != nil {
-			log.Println(err)
-		}
-
-		if config.HostToken != "" {
-			req.Header.Set("Authorization", config.HostToken)
-		}
-
-		res, err := client.Do(req)
-		if err != nil {
-			log.Println("Could not reach remote: " + err.Error())
-		}
-
-		if res != nil {
-			if res.StatusCode == http.StatusOK {
-				if res.Body != nil {
-					defer res.Body.Close()
-				}
-
-				body, err := io.ReadAll(res.Body)
-				if err != nil {
-					log.Println(err)
-				}
-
-				containers := []Container{}
-				err = json.Unmarshal(body, &containers)
-				if err != nil {
-					log.Println(err)
-				}
-
-				for _, container := range containers {
-					sqlInsertStatement := `
-					INSERT INTO containers (ID, Name, Host, Status, ImageName, ImageDigest)
-					VALUES ($1, $2, $3, $4, $5, $6)
-					ON CONFLICT(ID) DO UPDATE SET
-					Name = excluded.Name,
-					Host = excluded.Host,
-					Status = excluded.Status,
-					ImageName = excluded.ImageName,
-					ImageDigest = excluded.ImageDigest;`
-
-					_, err = db.Exec(sqlInsertStatement, container.ID, container.Name, container.Host, container.Status, container.ImageName, container.ImageDigest)
-					if err != nil {
-						log.Println("error inserting/updating container from remote data: ", err)
-					}
-				}
-				if len(containers) != 0 {
-					localContainers, err := selectAllContainers(db, containers[0].Host)
-					for _, localContainer := range localContainers {
-						found := false
-						for _, remoteContainer := range containers {
-							if localContainer.ID == remoteContainer.ID {
-								found = true
-							}
-						}
-						if !found {
-							sqlDeleteStatement := `
-							DELETE FROM containers
-							WHERE ID = $1;`
-							_, err = db.Exec(sqlDeleteStatement, localContainer.ID)
-							if err != nil {
-								log.Println("error deleting container not in remote data: ", err)
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
-	sqlQueryAllContainers := ""
-	if hostname != "" {
-		sqlQueryAllContainers = `
-			SELECT containers.ID
-				, containers.Name
-				, containers.Host
-				, containers.Status
-				, containers.ImageName
-				, containers.ImageDigest
-				, diun.ImageDigest AS ImageDigestNew 
-			FROM containers
-			LEFT OUTER JOIN diun ON containers.ImageName = diun.ImageName
-			WHERE Host = ?;`
-	} else {
-		sqlQueryAllContainers = `
-			SELECT containers.ID
-				, containers.Name
-				, containers.Host
-				, containers.Status
-				, containers.ImageName
-				, containers.ImageDigest
-				, diun.ImageDigest AS ImageDigestNew 
-			FROM containers 
-			LEFT OUTER JOIN diun ON containers.ImageName = diun.ImageName
-			ORDER BY Host;`
-	}
-
-	rows, err := db.Query(sqlQueryAllContainers, hostname)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var containers []Container
-	for rows.Next() {
-		var id, name, host, status, imageName, imageDigest string
-		var imageDigestNew sql.NullString
-		if err := rows.Scan(&id, &name, &host, &status, &imageName, &imageDigest, &imageDigestNew); err != nil {
-			return nil, err
-		}
-		if !imageDigestNew.Valid {
-			imageDigestNew.String = ""
-		}
-		container := Container{
-			ID: id,
-			Host: host,
-			Name: name,	
-			Status: status,
-			ImageName: imageName,
-			ImageDigest: imageDigest,
-			ImageDigestNew: imageDigestNew.String,
-		}
-		containers = append(containers, container)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return containers, nil
-}
-

@@ -4,7 +4,7 @@ RUN apk add --no-cache git gpgme-dev gcc musl-dev
 WORKDIR /go/src/app
 COPY . .
 RUN go get -v ./...
-RUN go build -o /go/bin/app -v -tags "exclude_graphdriver_devicemapper exclude_graphdriver_btrfs remote" containermon.go
+RUN go build -o /go/bin/app -v -tags "exclude_graphdriver_devicemapper exclude_graphdriver_btrfs remote" ./cmd/containermon
 
 #final stage
 FROM alpine:latest
@@ -16,7 +16,7 @@ ENV CRON_CONTAINER_HEALTH_CONFIG=''
 ENV CRON_HOST_HEALTH_CONFIG=''
 RUN apk --no-cache add ca-certificates gpgme curl
 COPY --from=builder /go/bin/app /app
-COPY --from=builder /go/src/app/layout.html /layout.html
-COPY --from=builder /go/src/app/login.html /login.html
+COPY --from=builder /go/src/app/assets/layout.html /layout.html
+COPY --from=builder /go/src/app/assets/login.html /login.html
 ENTRYPOINT ["/bin/sh", "-c", "/app"]
 LABEL Name=containermon Version=1.0
