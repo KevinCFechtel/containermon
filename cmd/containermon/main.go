@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"html/template"
 	"io"
 	"log"
 	"net/http"
@@ -23,66 +22,14 @@ import (
 	docker_container "github.com/docker/docker/api/types/container"
 	docker_client "github.com/docker/docker/client"
 	"github.com/go-co-op/gocron/v2"
-	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
-type Container struct {
-    ID 				string
-	Host 			string
-    Name     		string
-	Status 			string
-	ImageName 		string
-	ImageDigest 	string
-	ImageDigestNew 	string
-}
-
-type ContainerWeb struct {
-    ID 				string
-	Host 			string
-    Name     		string
-	Status 			string
-	ImageName 		string
-	ImageDigest 	string
-	ImageDigestNew 	string
-	EnableDiunWebhook bool
-}
-
-type DuinWebHookBody struct {
-    Hostname 	string
-	Status 		string
-    Provider    string
-	Image 		string
-	Digest 		string
-	Created 	string
-	Platform 	string
-}
-
-type Handler struct {
-    DB *sql.DB
-	DiunWebhookEnabled bool
-	AgentToken string
-	DiunWebhookToken string
-	Sessions map[string]session
-	webUIPassword string
-	webSessionExpirationTime int
-}
-
-type ContainerPageData struct {
-    PageTitle 	string
-	DiunWebhookEnabled bool
-    Containers 	[]ContainerWeb
-}
 
 type RemoteConfig struct {
 	HostAddress string
 	HostToken   string
 }
-
-type session struct {
-	expiry   time.Time
-}
-
 
 func main() {
 	var socketPath string
@@ -783,210 +730,6 @@ func getAndStoreRemoteData(remoteHostConfigs []RemoteConfig, db *sql.DB) {
 	}
 }
 
-func (fh *Handler) handleWebGui(w http.ResponseWriter, r *http.Request) {
-	if fh.webUIPassword != "" {
-		c, err := r.Cookie("session_token")
-		if err != nil {
-			if err == http.ErrNoCookie {
-				http.Redirect(w, r, "/login", http.StatusSeeOther)
-				return
-			}
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-		sessionToken := c.Value
-
-		userSession, exists := fh.Sessions[sessionToken]
-		if !exists {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-		if userSession.isExpired() {
-			delete(fh.Sessions, sessionToken)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-	}
-	var webContainers []ContainerWeb
-	tmpl := template.Must(template.ParseFiles("layout.html"))
-	containers, err := selectAllContainers(fh.DB, "")
-	if err != nil {
-		log.Println("error selecting containers: ", err)
-	}
-	for _, container := range containers {
-		webContainer := ContainerWeb{
-			ID: container.ID,
-			Host: container.Host,
-			Name: container.Name,
-			Status: container.Status,
-			ImageName: container.ImageName,
-			ImageDigest: container.ImageDigest,
-			ImageDigestNew: container.ImageDigestNew,
-			EnableDiunWebhook: fh.DiunWebhookEnabled,
-		}
-		webContainers = append(webContainers, webContainer)
-	}
-
-	data := ContainerPageData{
-		PageTitle: "ContainerMon - Monitored Containers",
-		DiunWebhookEnabled: fh.DiunWebhookEnabled,
-		Containers: webContainers,
-	}
-    tmpl.Execute(w, data)
-}
-
-func (fh *Handler) handleJsonExport(w http.ResponseWriter, r *http.Request) {
-	if fh.AgentToken != "" {
-		if r.Header.Get("Authorization") != fh.AgentToken {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-	}
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Println("Failed to get Hostname: " + err.Error())
-	}
-
-	containers, err := selectAllContainers(fh.DB, hostname)
-	if err != nil {
-		log.Println("error selecting containers: ", err)
-	}
-
-	data, err := json.Marshal(containers)
-    if err != nil {
-        log.Println(err)
-    }
-    fmt.Fprintf(w, string(data))
-}
-
-func (fh *Handler) handleWebhookExport(w http.ResponseWriter, r *http.Request) {
-	if fh.DiunWebhookToken != "" {
-		if r.Header.Get("Authorization") != fh.DiunWebhookToken {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-	}
-	sqlUpdateStatement := `
-			UPDATE diun
-			SET ImageDigest = $2
-			WHERE ImageName = $1;`
-	sqlInsertStatement := `
-		INSERT INTO diun (ImageName, ImageDigest)
-		VALUES ($1, $2)`
-	duinBody := DuinWebHookBody{}
-	if r.Body != nil {
-		defer r.Body.Close()
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Println(err)
-	}
-
-	err = json.Unmarshal(body, &duinBody)
-    if err != nil {
-        log.Println(err)
-    }
-
-	sqlImageName := ""
-	row := fh.DB.QueryRow("SELECT ImageName FROM diun WHERE ImageName = ?", duinBody.Image)
-	switch err := row.Scan(&sqlImageName); err {
-	case sql.ErrNoRows:
-		_ ,err = fh.DB.Exec(sqlInsertStatement, duinBody.Image, duinBody.Digest)
-		if err != nil {
-			log.Println(err)
-		}
-	case nil:
-		_, err = fh.DB.Exec(sqlUpdateStatement, duinBody.Image, duinBody.Digest)
-		if err != nil {
-			log.Println(err)
-		}
-	default:
-		log.Println(err)
-	}
-	
-    fmt.Fprintf(w, "Ok")
-}
-
-func (fh *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
-	transmittedPassword := r.FormValue("password")
-
-	if fh.webUIPassword != transmittedPassword {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-
-	sessionToken := uuid.NewString()
-	expiresAt := time.Now().Add(time.Duration(fh.webSessionExpirationTime) * time.Minute)
-
-	fh.Sessions[sessionToken] = session{
-		expiry:   expiresAt,
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:    "session_token",
-		Value:   sessionToken,
-		Expires: expiresAt,
-	})
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func (fh *Handler) handleManualUpdate(w http.ResponseWriter, r *http.Request) {
-	if fh.webUIPassword != "" {
-		c, err := r.Cookie("session_token")
-		if err != nil {
-			if err == http.ErrNoCookie {
-				http.Redirect(w, r, "/login", http.StatusSeeOther)
-				return
-			}
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-		sessionToken := c.Value
-
-		userSession, exists := fh.Sessions[sessionToken]
-		if !exists {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-		if userSession.isExpired() {
-			delete(fh.Sessions, sessionToken)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-	}
-	sqlUpdateStatement := `
-			UPDATE diun
-			SET ImageDigest = $2
-			WHERE ImageName = $1;`
-	sqlInsertStatement := `
-		INSERT INTO diun (ImageName, ImageDigest)
-		VALUES ($1, $2)`
-	duinBody := DuinWebHookBody{}
-
-	duinBody.Image = r.FormValue("imageName")
-	duinBody.Digest = r.FormValue("imageDigest")
-
-	sqlImageName := ""
-	row := fh.DB.QueryRow("SELECT ImageName FROM diun WHERE ImageName = ?", duinBody.Image)
-	switch err := row.Scan(&sqlImageName); err {
-	case sql.ErrNoRows:
-		_ ,err = fh.DB.Exec(sqlInsertStatement, duinBody.Image, duinBody.Digest)
-		if err != nil {
-			log.Println(err)
-		}
-	case nil:
-		_, err = fh.DB.Exec(sqlUpdateStatement, duinBody.Image, duinBody.Digest)
-		if err != nil {
-			log.Println(err)
-		}
-	default:
-		log.Println(err)
-	}
-	
-    http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
 func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
 	sqlQueryAllContainers := ""
 	if hostname != "" {
@@ -1049,7 +792,3 @@ func selectAllContainers(db *sql.DB, hostname string) ([]Container, error) {
 	return containers, nil
 }
 
-// we'll use this method later to determine if the session has expired
-func (s session) isExpired() bool {
-	return s.expiry.Before(time.Now())
-}
