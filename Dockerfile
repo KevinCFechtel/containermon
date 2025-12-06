@@ -18,5 +18,7 @@ RUN apk --no-cache add ca-certificates gpgme curl
 COPY --from=builder /go/bin/app /app
 COPY --from=builder /go/src/app/assets/layout.html /layout.html
 COPY --from=builder /go/src/app/assets/login.html /login.html
+COPY --from=builder /go/src/app/assets/bootstrap.bundle.min.js /static/scripts/bootstrap.bundle.min.js
+COPY --from=builder /go/src/app/assets/bootstrap.min.css /static/styles/bootstrap.min.css
 ENTRYPOINT ["/bin/sh", "-c", "/app"]
 LABEL Name=containermon Version=1.0

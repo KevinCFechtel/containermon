@@ -297,7 +297,9 @@ func main() {
 	}
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
     	http.ServeFile(w, r, "login.html")
-	})	
+	})
+	http.Handle("/styles/", http.StripPrefix("/styles/", http.FileServer(http.Dir("./static/styles"))))
+	http.Handle("/scripts/", http.StripPrefix("/scripts/", http.FileServer(http.Dir("./static/scripts"))))
 	http.HandleFunc("/auth", Webhandler.HandleLogin)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
     	rss := "OK"
