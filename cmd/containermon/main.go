@@ -137,10 +137,11 @@ func main() {
 		socket = "unix://" + socketPath
 	}
 
- hostname, err := os.Hostname()
- if err != nil {
-  log.Println("Failed to get Hostname: " + err.Error())
- }
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Println("Failed to get Hostname: " + err.Error())
+	}
+
 	DBHandler := Databasehandler.NewHandler(dbPath)
 	Podmanhandler := Podmanhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, hostname, redBubble, greenBubble)
 	Dockerhandler := Dockerhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, hostname, redBubble, greenBubble)
@@ -154,7 +155,14 @@ func main() {
 		log.Printf("Container error URL: %s\n", containerErrorUrl)
 		log.Printf("Cron Host health Scheduler Config: %s\n", cronHostHealthConfig)
 		log.Printf("Cron Container health Scheduler Config: %s\n", cronContainerHealthConfig)
-		log.Printf("Message on Startup %s\n", messageOnStartup)
+		log.Printf("Cron Remote Host Scheduler Config: %s\n", cronRemoteConfig)
+		if enableDiunWebhook {
+			log.Println("Diun Webhook handling enabled")
+		} else {
+			log.Println("Diun Webhook handling disabled")
+		}
+		log.Printf("DB Path: %s\n", dbPath)
+		log.Printf("Web Session expiration time:  %s\n", webSessionExpirationTime)
 	}
 
 	s, err := gocron.NewScheduler()

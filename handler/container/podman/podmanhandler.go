@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	podman_binding "github.com/containers/podman/v5/pkg/bindings"
 	podman_containers "github.com/containers/podman/v5/pkg/bindings/containers"
@@ -45,7 +44,6 @@ func (h *Handler) PodmanHealthCheck() {
 	connText, err := podman_binding.NewConnection(context.Background(), h.socket)
 	if err != nil {
 			log.Println(err)
-			os.Exit(1)
 	}
 	if h.enableDebugging {
 		log.Println("Socket connected")
@@ -57,7 +55,6 @@ func (h *Handler) PodmanHealthCheck() {
 	containerLatestList, err := podman_containers.List(connText, &options)
 	if err != nil {
 		log.Println(err)
-		os.Exit(1)
 	}
 	if h.enableDebugging {
 		log.Println("Container list retrieved, total containers: " + fmt.Sprint(len(containerLatestList)))
@@ -69,7 +66,9 @@ func (h *Handler) PodmanHealthCheck() {
 	imageList, err := podman_images.List(connText, &image_options)
 	if err != nil {
 		log.Println(err)
-		os.Exit(1)
+	}
+	if h.enableDebugging {
+		log.Println("Image list retrieved, total images: " + fmt.Sprint(len(imageList)))
 	}
 	// Process each container
 	for _, r := range containerLatestList {
@@ -77,7 +76,6 @@ func (h *Handler) PodmanHealthCheck() {
 		ctrData, err := podman_containers.Inspect(connText, r.ID, nil)
 		if err != nil {
 			log.Println(err)
-			os.Exit(1)
 		}
 		if h.enableDebugging {
 			log.Println("Inspection read for container: " + ctrData.Name)

@@ -11,6 +11,7 @@ import (
 	docker_client "github.com/docker/docker/client"
 
 	Databasehandler "github.com/KevinCFechtel/containermon/handler/database"
+	Containermodels "github.com/KevinCFechtel/containermon/models/container"
 )
 
 type Handler struct {
@@ -51,17 +52,17 @@ func (h *Handler) DockerHealthCheck() {
 		log.Println("Socket connected")
 	}
 	// Container list
-	containerList, err := dockerClient.ContainerList(context.Background(), docker_container.ListOptions{All: true})
+	containerLatestList, err := dockerClient.ContainerList(context.Background(), docker_container.ListOptions{All: true})
 	if err != nil {
 		log.Println("Failed to retrieve container list: " + err.Error())
 		os.Exit(1)
 	}
 	if h.enableDebugging {
-		log.Println("Container list retrieved, total containers: " + fmt.Sprint(len(containerList)))
+		log.Println("Container list retrieved, total containers: " + fmt.Sprint(len(containerLatestList)))
 	}
 
 	// Process each container
-	for _, r := range containerList {
+	for _, r := range containerLatestList {
 		// Inspect each container
 		ctrData, err := dockerClient.ContainerInspect(context.Background(), r.ID)
 		if err != nil {
@@ -71,6 +72,22 @@ func (h *Handler) DockerHealthCheck() {
 		if h.enableDebugging {
 			log.Println("Inspection read for container: " + ctrData.Name)
 		}
+
+		containerStatus := ""
+		if ctrData.State.Health != nil {
+			containerStatus = ctrData.State.Health.Status
+		} else {
+			containerStatus = ctrData.State.Status
+		}
+		container := Containermodels.Container{
+			ID:        	ctrData.ID,
+			Name:      	ctrData.Name,
+			Status:    	containerStatus,
+			ImageName: 	ctrData.Config.Image,
+			ImageDigest: 	ctrData.Image,
+		}
+		h.DBHandler.InsertOrUpdateContainer(container, h.hostname)
+
 		// Check for skip label
 		inspectContainer := true
 
@@ -84,7 +101,9 @@ func (h *Handler) DockerHealthCheck() {
 		}
 
 		if inspectContainer {
+			skipHealthCheck := true
 			if(ctrData.State.Health != nil) {
+				skipHealthCheck = false
 				healthstatus := ctrData.State.Health.Status
 				if h.enableDebugging {
 					log.Println("Health status for container " + ctrData.Name + ": " + healthstatus)
@@ -114,7 +133,8 @@ func (h *Handler) DockerHealthCheck() {
 						delete(h.cache, ctrData.ID)
 					}
 				}
-			} else {
+			}
+			if skipHealthCheck {
 				containerStatus := ctrData.State.Status
 				if h.enableDebugging {
 					log.Println("Container status for container " + ctrData.Name + ": " + containerStatus)
@@ -143,6 +163,22 @@ func (h *Handler) DockerHealthCheck() {
 						delete(h.cache, ctrData.ID)
 					}
 				}
+			}
+		}
+	}
+	localContainers, err := h.DBHandler.SelectAllContainers(h.hostname)
+	if err != nil {
+		log.Println("error selecting containers: ", err)
+	} else {
+		for _, localContainer := range localContainers {
+			found := false
+			for _, latestContainer := range containerLatestList {
+				if localContainer.ID == latestContainer.ID {
+					found = true
+				}
+			}
+			if !found {
+				h.DBHandler.DeleteContainer(localContainer.ID)
 			}
 		}
 	}
