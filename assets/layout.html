@@ -81,11 +81,9 @@
                     </button></td>
                 {{end}}
                 <td>
-                    <form method="POST" action="/manualUpdate">
-                        <input type="hidden" class="form-control" id="imageName" name="imageName"
-                            value="{{.ImageName}}">
-                        <input type="hidden" class="form-control" id="imageDigest" name="imageDigest"
-                            value="{{.ImageDigest}}">
+                    <form method="POST" action="/manualUpdate" class="m-0">
+                        <input type="hidden" id="imageName" name="imageName" value="{{.ImageName}}">
+                        <input type="hidden" id="imageDigest" name="imageDigest" value="{{.ImageDigest}}">
                         <input type="submit" class="btn btn-secondary btn-sm" value="Manual mark as Updated">
                     </form>
                 </td>
