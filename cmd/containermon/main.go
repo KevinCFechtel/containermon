@@ -39,37 +39,37 @@ func main() {
 	var webSessionExpirationTime int
 	greenBubble := "\U0001F7E2"
 	redBubble := "\U0001F534"
-    
+
 	flag.StringVar(&socketPath, "socketPath", "", "Socket file path for Container engine")
-	if(socketPath == "") {
+	if socketPath == "" {
 		socketPath = os.Getenv("SOCKET_FILE_PATH")
 	}
 	flag.StringVar(&hostHealthcheckUrl, "healthcheckUrl", "", "Health check URL to report status")
-	if(hostHealthcheckUrl == "") {
+	if hostHealthcheckUrl == "" {
 		hostHealthcheckUrl = os.Getenv("HOST_HEALTH_CHECK_URL")
 	}
 	flag.StringVar(&containerErrorUrl, "containerErrorUrl", "", "Error URL to report container errors")
-	if(containerErrorUrl == "") {
+	if containerErrorUrl == "" {
 		containerErrorUrl = os.Getenv("CONTAINER_ERROR_URL")
 	}
 	flag.StringVar(&cronContainerHealthConfig, "cronContainerHealthConfig", "", "Cron scheduler configuration for Container health check")
-	if(cronContainerHealthConfig == "") {
+	if cronContainerHealthConfig == "" {
 		cronContainerHealthConfig = os.Getenv("CRON_CONTAINER_HEALTH_CONFIG")
 	}
 	flag.StringVar(&cronHostHealthConfig, "cronHostHealthConfig", "", "Cron scheduler configuration for Host health check")
-	if(cronHostHealthConfig == "") {
+	if cronHostHealthConfig == "" {
 		cronHostHealthConfig = os.Getenv("CRON_HOST_HEALTH_CONFIG")
 	}
 	flag.StringVar(&agentToken, "agentToken", "", "Token for agent authentication")
-	if(agentToken == "") {
+	if agentToken == "" {
 		agentToken = os.Getenv("AGENT_TOKEN")
 	}
 	flag.StringVar(&diunWebhookToken, "diunWebhookToken", "", "Token for agent authentication")
-	if(diunWebhookToken == "") {
+	if diunWebhookToken == "" {
 		diunWebhookToken = os.Getenv("DIUN_WEBHOOK_TOKEN")
 	}
 	flag.StringVar(&webUIPassword, "webUIPassword", "", "Password for Web UI access")
-	if(webUIPassword == "") {
+	if webUIPassword == "" {
 		webUIPassword = os.Getenv("WEBUI_PASSWORD")
 	}
 	remoteHostConfigs := []Remotemodels.RemoteConfig{}
@@ -78,16 +78,16 @@ func main() {
 			if strings.HasPrefix(e, "REMOTE_CONFIG_HOST_") {
 				configCoutnter := strings.TrimPrefix(e[:i], "REMOTE_CONFIG_HOST_")
 				remoteToken := os.Getenv("REMOTE_CONFIG_TOKEN_" + configCoutnter)
-				remoteHostConfigs = append(remoteHostConfigs, Remotemodels.RemoteConfig{ 
+				remoteHostConfigs = append(remoteHostConfigs, Remotemodels.RemoteConfig{
 					HostAddress: e[i+1:],
-					HostToken: remoteToken,
+					HostToken:   remoteToken,
 				})
 			}
 		}
 	}
 
 	flag.StringVar(&cronRemoteConfig, "cronRemoteConfig", "", "Cron scheduler configuration for Remote data fetch")
-	if(cronRemoteConfig == "") {
+	if cronRemoteConfig == "" {
 		cronRemoteConfig = os.Getenv("CRON_REMOTE_CONFIG")
 	}
 	flag.BoolVar(&enableDebugging, "debug", false, "Enable debug logging")
@@ -108,7 +108,7 @@ func main() {
 		}
 	}
 	flag.StringVar(&dbPath, "dbPath", "", "Path to Sqlite DB file")
-	if(dbPath == "") {
+	if dbPath == "" {
 		dbPath = os.Getenv("DB_PATH")
 	}
 	flag.BoolVar(&enableDiunWebhook, "enableDiunWebhook", false, "Enable debug logging")
@@ -120,7 +120,7 @@ func main() {
 		}
 	}
 	flag.IntVar(&webSessionExpirationTime, "webSessionExpirationTime", -1, "Web UI session expiration time in minutes")
-	if(webSessionExpirationTime == -1) {
+	if webSessionExpirationTime == -1 {
 		webSessionExpirationTimeEnvar, err := strconv.Atoi(os.Getenv("WEB_SESSION_EXPIRATION_TIME"))
 		if err != nil {
 			webSessionExpirationTime = 120
@@ -131,7 +131,7 @@ func main() {
 	}
 
 	socket := ""
-	if strings.Contains(socketPath,"podman") {
+	if strings.Contains(socketPath, "podman") {
 		socket = "unix:" + socketPath
 	} else {
 		socket = "unix://" + socketPath
@@ -189,7 +189,7 @@ func main() {
 						log.Println("Starting Cron for Container Health Check")
 					}
 
-					if strings.Contains(socketPath,"podman") {
+					if strings.Contains(socketPath, "podman") {
 						if enableDebugging {
 							log.Println("Using Podman health check")
 						}
@@ -225,7 +225,7 @@ func main() {
 					if enableDebugging {
 						log.Println("Starting Cron for Host Health Check")
 					}
-					
+
 					// HTTP client with timeout
 					client := &http.Client{
 						Timeout: 10 * time.Second,
@@ -277,7 +277,7 @@ func main() {
 		log.Println("No Remote Data Fetch cron configuration provided, skipping remote data fetch setup")
 	}
 	if messageOnStartup {
-		err := shoutrrr.Send(containerErrorUrl, "<b>STARTUP:</b> ContainerMon has started successfully on Host <b>" + hostname + "</b> " + greenBubble)
+		err := shoutrrr.Send(containerErrorUrl, "<b>STARTUP:</b> ContainerMon has started successfully on Host <b>"+hostname+"</b> "+greenBubble)
 		if err != nil {
 			log.Println("Failed to send error log: " + err.Error())
 		}
@@ -288,7 +288,6 @@ func main() {
 		log.Println("No cron jobs configured, exiting")
 	}
 
-
 	http.HandleFunc("/", Webhandler.HandleWebGui)
 	http.HandleFunc("/json", Webhandler.HandleJsonExport)
 	if enableDiunWebhook {
@@ -296,14 +295,14 @@ func main() {
 		http.HandleFunc("/manualUpdate", Webhandler.HandleManualUpdate)
 	}
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
-    	http.ServeFile(w, r, "login.html")
+		http.ServeFile(w, r, "login.html")
 	})
 	http.Handle("/styles/", http.StripPrefix("/styles/", http.FileServer(http.Dir("./static/styles"))))
 	http.Handle("/scripts/", http.StripPrefix("/scripts/", http.FileServer(http.Dir("./static/scripts"))))
 	http.HandleFunc("/auth", Webhandler.HandleLogin)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-    	rss := "OK"
+		rss := "OK"
 		io.WriteString(w, rss)
-	})	
-	http.ListenAndServe(":80", nil) 
+	})
+	http.ListenAndServe(":80", nil)
 }
