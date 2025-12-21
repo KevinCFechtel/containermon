@@ -85,7 +85,7 @@ func (h *WebHandler) HandleWebGui(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := Webmodels.ContainerPageData{
-		PageTitle: "ContainerMon - Monitored Containers",
+		PageTitle: "Monitored Containers",
 		DiunWebhookEnabled: h.diunWebhookEnabled,
 		Containers: webContainers,
 	}

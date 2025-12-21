@@ -85,7 +85,6 @@ func main() {
 			}
 		}
 	}
-
 	flag.StringVar(&cronRemoteConfig, "cronRemoteConfig", "", "Cron scheduler configuration for Remote data fetch")
 	if cronRemoteConfig == "" {
 		cronRemoteConfig = os.Getenv("CRON_REMOTE_CONFIG")
@@ -98,7 +97,6 @@ func main() {
 			enableDebugging = false
 		}
 	}
-
 	flag.BoolVar(&messageOnStartup, "messageOnStartup", false, "Send startup message")
 	if os.Getenv("ENABLE_MESSAGE_ON_STARTUP") != "" {
 		if os.Getenv("ENABLE_MESSAGE_ON_STARTUP") == "true" {
