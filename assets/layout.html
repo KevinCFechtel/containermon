@@ -4,10 +4,8 @@
     <link href="/styles/bootstrap.min.css" rel="stylesheet">
     <script src="/scripts/bootstrap.bundle.min.js"></script>
     <style>
-        /* Popover groß genug für ganze Tabelle, nicht in der Zelle abgeschnitten */
         .popover.custom-popover {
             max-width: 900px;
-            /* Größe anpassen */
             width: auto;
             white-space: normal;
         }
@@ -16,7 +14,6 @@
             padding: .5rem;
         }
 
-        /* Tabelle innerhalb des Popovers auf volle Breite */
         .popover.custom-popover table {
             width: 100%;
             margin: 0;
@@ -104,7 +101,7 @@
                 return new bootstrap.Popover(popoverTriggerEl, {
                     html: true,
                     sanitize: false,
-                    container: 'body' // verhindert Abschneiden durch Eltern-Container
+                    container: 'body'
                 });
             });
         });
