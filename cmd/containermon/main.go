@@ -27,6 +27,7 @@ func main() {
 	var hostHealthcheckUrl string
 	var containerErrorUrl string
 	var agentToken string
+	var homepageToken string
 	var diunWebhookToken string
 	var cronContainerHealthConfig string
 	var cronHostHealthConfig string
@@ -63,6 +64,10 @@ func main() {
 	flag.StringVar(&agentToken, "agentToken", "", "Token for agent authentication")
 	if agentToken == "" {
 		agentToken = os.Getenv("AGENT_TOKEN")
+	}
+	flag.StringVar(&homepageToken, "homepageToken", "", "Token for agent authentication")
+	if homepageToken == "" {
+		homepageToken = os.Getenv("HOMEPAGE_TOKEN")
 	}
 	flag.StringVar(&diunWebhookToken, "diunWebhookToken", "", "Token for agent authentication")
 	if diunWebhookToken == "" {
@@ -143,7 +148,7 @@ func main() {
 	DBHandler := Databasehandler.NewHandler(dbPath)
 	Podmanhandler := Podmanhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, hostname, redBubble, greenBubble)
 	Dockerhandler := Dockerhandler.NewHandler(DBHandler, socket, containerErrorUrl, enableDebugging, hostname, redBubble, greenBubble)
-	Webhandler := Webhandler.NewWebHandler(DBHandler, enableDiunWebhook, agentToken, diunWebhookToken, webUIPassword, webSessionExpirationTime)
+	Webhandler := Webhandler.NewWebHandler(DBHandler, enableDiunWebhook, agentToken, homepageToken, diunWebhookToken, webUIPassword, webSessionExpirationTime)
 	Remotehandler := Remotehandler.NewHandler(DBHandler)
 
 	if enableDebugging {
@@ -288,6 +293,10 @@ func main() {
 
 	http.HandleFunc("/", Webhandler.HandleWebGui)
 	http.HandleFunc("/json", Webhandler.HandleJsonExport)
+	if homepageToken != "" {
+		http.HandleFunc("/homepageImageExport", Webhandler.HandleHomepageImageExport)
+		http.HandleFunc("/homepageContainerExport", Webhandler.HandleHomepageContainerExport)
+	}
 	if enableDiunWebhook {
 		http.HandleFunc("/webhook", Webhandler.HandleWebhookExport)
 		http.HandleFunc("/manualUpdate", Webhandler.HandleManualUpdate)

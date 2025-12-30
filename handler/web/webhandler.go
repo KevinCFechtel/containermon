@@ -14,6 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	Databasehandler "github.com/KevinCFechtel/containermon/handler/database"
+	Homepagemodels "github.com/KevinCFechtel/containermon/models/homepage"
 	Webmodels "github.com/KevinCFechtel/containermon/models/web"
 )
 
@@ -21,17 +22,19 @@ type WebHandler struct {
     DBHandler *Databasehandler.Handler
 	diunWebhookEnabled bool
 	agentToken string
+	homepageToken string
 	diunWebhookToken string
 	sessions map[string]Webmodels.Session
 	webUIPassword string
 	webSessionExpirationTime int
 }
 
-func NewWebHandler(newDBHandler *Databasehandler.Handler, diunWebhookEnabled bool, agentToken string, diunWebhookToken string, webUIPassword string, webSessionExpirationTime int) *WebHandler {
+func NewWebHandler(newDBHandler *Databasehandler.Handler, diunWebhookEnabled bool, agentToken string, homepageToken string, diunWebhookToken string, webUIPassword string, webSessionExpirationTime int) *WebHandler {
 	return &WebHandler{
 		DBHandler: newDBHandler,
 		diunWebhookEnabled: diunWebhookEnabled,
 		agentToken: agentToken,
+		homepageToken: homepageToken,
 		diunWebhookToken: diunWebhookToken,
 		sessions: make(map[string]Webmodels.Session),
 		webUIPassword: webUIPassword,
@@ -200,4 +203,72 @@ func (h *WebHandler) HandleManualUpdate(w http.ResponseWriter, r *http.Request) 
 	h.DBHandler.InsortOrUpdateImageDigest(diunBody.Image, diunBody.Digest)
 	
     http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (h *WebHandler) HandleHomepageImageExport(w http.ResponseWriter, r *http.Request) {
+	if h.homepageToken != "" {
+		if r.Header.Get("Authorization") != h.homepageToken {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	var data []byte
+	var returnValue Homepagemodels.HomepageImageStatus
+	containers, err := h.DBHandler.SelectAllContainers("")
+	for container := range containers {
+		containerName := containers[container].Name + " / " + containers[container].Host
+		imageStatus := "Outdated"
+		switch containers[container].ImageDigestNew {
+			case "":
+				imageStatus = "No Image Found"
+			case containers[container].ImageDigest:
+				imageStatus = "Up to Date"
+			default:
+				imageStatus = "Outdated"
+		}
+		returnValue.ContainerImageStatus = append(returnValue.ContainerImageStatus, Homepagemodels.ContainerImageStatus{
+			Container:    containerName,
+			ImageStatus:  imageStatus,
+		})
+	}
+	if err != nil {
+		log.Println("error selecting containers: ", err)
+	} else {
+		data, err = json.Marshal(returnValue)
+		if err != nil {
+			log.Println(err)
+		}
+	}
+    fmt.Fprintf(w, "%s", string(data))
+}
+
+func (h *WebHandler) HandleHomepageContainerExport(w http.ResponseWriter, r *http.Request) {
+	if h.homepageToken != "" {
+		if r.Header.Get("Authorization") != h.homepageToken {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	var data []byte
+	var returnValue Homepagemodels.HomepageContainerStatus
+	containers, err := h.DBHandler.SelectAllContainers("")
+	for container := range containers {
+		containerName := containers[container].Name + " / " + containers[container].Host
+		containerStatus := containers[container].Status
+		returnValue.ContainerStatus = append(returnValue.ContainerStatus, Homepagemodels.ContainerStatus{
+			Container:    containerName,
+			ContainerStatus:  containerStatus,
+		})
+	}
+	if err != nil {
+		log.Println("error selecting containers: ", err)
+	} else {
+		data, err = json.Marshal(returnValue)
+		if err != nil {
+			log.Println(err)
+		}
+	}
+    fmt.Fprintf(w, "%s", string(data))
 }
