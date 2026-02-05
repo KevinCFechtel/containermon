@@ -273,6 +273,7 @@ func (h *WebHandler) HandleHomepageContainerExport(w http.ResponseWriter, r *htt
     fmt.Fprintf(w, "%s", string(data))
 }
 
+// TODO: Remove after testing
 func (h *WebHandler) HandleHeaderLogging(w http.ResponseWriter, r *http.Request) {
 	log.Println("Received request with headers:")
 	for name, values := range r.Header {
