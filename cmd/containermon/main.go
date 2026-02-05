@@ -308,7 +308,7 @@ func main() {
 	http.Handle("/scripts/", http.StripPrefix("/scripts/", http.FileServer(http.Dir("./static/scripts"))))
 	http.HandleFunc("/auth", Webhandler.HandleLogin)
 	// TODO: Remove after testing
-	http.HandleFunc("/headertest", Webhandler.HandleHeaderLogging)
+	http.HandleFunc("/headertest/v1/", Webhandler.HandleHeaderLogging)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		rss := "OK"
 		io.WriteString(w, rss)
