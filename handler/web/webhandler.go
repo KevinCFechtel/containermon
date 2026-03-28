@@ -217,7 +217,7 @@ func (h *WebHandler) HandleHomepageImageExport(w http.ResponseWriter, r *http.Re
 	var returnValue Homepagemodels.HomepageImageStatus
 	containers, err := h.DBHandler.SelectAllContainers("")
 	for container := range containers {
-		containerName := containers[container].Name + " / " + containers[container].Host
+		containerName := containers[container].Host + " / " + containers[container].Name
 		imageStatus := "Outdated"
 		switch containers[container].ImageDigestNew {
 			case "":
@@ -255,7 +255,7 @@ func (h *WebHandler) HandleHomepageContainerExport(w http.ResponseWriter, r *htt
 	var returnValue Homepagemodels.HomepageContainerStatus
 	containers, err := h.DBHandler.SelectAllContainers("")
 	for container := range containers {
-		containerName := containers[container].Name + " / " + containers[container].Host
+		containerName := containers[container].Host + " / " + containers[container].Name
 		containerStatus := containers[container].Status
 		returnValue.ContainerStatus = append(returnValue.ContainerStatus, Homepagemodels.ContainerStatus{
 			Container:    containerName,
