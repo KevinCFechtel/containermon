@@ -240,9 +240,10 @@ func main() {
 					resp, err := client.Head(hostHealthcheckUrl)
 					if err != nil {
 						log.Println("Failed to send success log: " + err.Error())
-					}
-					if resp.StatusCode != 200 {
-						log.Println("Failed to send success log, response code: " + resp.Status)
+					} else {
+						if resp.StatusCode != 200 {
+							log.Println("Failed to send success log, response code: " + resp.Status)
+						}
 					}
 				},
 			),
